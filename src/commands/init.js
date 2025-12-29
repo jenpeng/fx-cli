@@ -148,10 +148,23 @@ fx-cli create plugin MyVuePlugin --sub-type vue
 fx-cli create plugin MyAvaPlugin --sub-type ava
 
 # 创建指定API名称和命名空间的函数
-fx-cli create function <functionname> --api-name <function_api_name__c> --name-space <namespace> --return-type <returntype>  --
+fx-cli create function <functionname> --api-name <function_api_name__c> --name-space <namespace> --return-type <returntype>
 
 # 创建指定API名称和命名空间的类
 fx-cli create class <classname> --api-name <class_api_name__c> --name-space <namespace> --return-type <returntype>
+
+# 创建类示例
+fx-cli create class MyTestClass --api-name MyTestClass__c --name-space BI --return-type Map
+fx-cli create class DataProcessor --api-name DataProcessor__c --name-space CONSUME --return-type List
+fx-cli create class ReportGenerator --api-name ReportGenerator__c --name-space ERPDSS --return-type Boolean
+
+# 创建函数示例
+fx-cli create function CalculateTotal --api-name CalculateTotal__c --name-space BI --return-type Decimal
+fx-cli create function ProcessData --api-name ProcessData__c --name-space CONSUME --return-type String
+fx-cli create function GenerateReport --api-name GenerateReport__c --name-space ERPDSS --return-type Map
+
+# 查看所有支持的命名空间和返回类型
+fx-cli create --list-namespaces
 \`\`\`
 
 ### 拉取资源

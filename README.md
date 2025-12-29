@@ -152,16 +152,91 @@ fx-cli --help
 - `-lns, --list-namespaces`: 查看支持的命名空间清单
 
 **示例：**
+```markdown
+### 创建资源
+
+#### 查看支持的命名空间和返回类型
+
 ```bash
 # 查看支持的命名空间清单
 fx-cli create --list-namespaces
 # 或使用缩写
 fx-cli create -lns
+```
 
+#### 创建组件
+
+```bash
 # 创建Vue组件
-fx-cli create component MyVueComponent --sub-type vue
-# 创建函数
-fx-cli create function MyFunction --api-name My_Function__c --name-space com.example
+fx-cli create component MyVueComponent --api-name MyVueComponent__c --sub-type vue
+
+# 创建AVA组件
+fx-cli create component MyAvaComponent --api-name MyAvaComponent__c --sub-type ava
+
+# 在指定路径创建组件
+fx-cli create component MyComponent --path ./custom/components
+```
+
+#### 创建插件
+
+```bash
+# 创建Vue插件
+fx-cli create plugin MyVuePlugin --sub-type vue
+
+# 创建AVA插件
+fx-cli create plugin MyAvaPlugin --sub-type ava
+
+# 在指定路径创建插件
+fx-cli create plugin MyPlugin --path ./custom/plugins
+```
+
+#### 创建函数
+
+```bash
+# 基本语法
+fx-cli create function <functionname> --api-name <function_api_name__c> --name-space <namespace> --return-type <returntype>
+
+# 具体示例
+fx-cli create function CalculateTotal --api-name CalculateTotal__c --name-space BI --return-type Decimal
+fx-cli create function ProcessData --api-name ProcessData__c --name-space CONSUME --return-type String
+fx-cli create function GenerateReport --api-name GenerateReport__c --name-space ERPDSS --return-type Map
+fx-cli create function ValidateInput --api-name ValidateInput__c --name-space CRM --return-type Boolean
+fx-cli create function FormatDate --api-name FormatDate__c --name-space WORKFLOW --return-type String
+
+# 在指定路径创建函数
+fx-cli create function MyFunction --path ./custom/functions --api-name MyFunction__c --name-space BI --return-type Map
+```
+
+#### 创建类
+
+```bash
+# 基本语法
+fx-cli create class <classname> --api-name <class_api_name__c> --name-space <namespace> --return-type <returntype>
+
+# 具体示例
+fx-cli create class MyTestClass --api-name MyTestClass__c --name-space BI --return-type Map
+fx-cli create class DataProcessor --api-name DataProcessor__c --name-space CONSUME --return-type List
+fx-cli create class ReportGenerator --api-name ReportGenerator__c --name-space ERPDSS --return-type Boolean
+fx-cli create class CustomerManager --api-name CustomerManager__c --name-space CRM --return-type Object
+fx-cli create class WorkflowHandler --api-name WorkflowHandler__c --name-space WORKFLOW --return-type String
+
+# 在指定路径创建类
+fx-cli create class MyClass --path ./custom/classes --api-name MyClass__c --name-space BI --return-type Map
+```
+
+#### 命名空间说明
+
+fx-cli支持以下命名空间分组：
+
+| 分组 | 命名空间 | 支持的资源类型 | 允许的返回类型 |
+|-----|---------|---------------|---------------|
+| BI | BI, BICommon, BICustom, BIQuery | class, function | Map, List, Boolean, String, Integer, Decimal |
+| CONSUME | CONSUME, CONSUMECommon, CONSUMECustom | class, function | Map, List, Boolean, String, Integer, Decimal |
+| ERPDSS | ERPDSS, ERPDSSCommon, ERPDSSCustom | class, function | Map, List, Boolean, String, Integer, Decimal |
+| CRM | CRM, CRMCommon, CRMCustom | class, function | Map, List, Boolean, String, Integer, Decimal |
+| WORKFLOW | WORKFLOW, WORKFLOWCommon, WORKFLOWCustom | class, function | Map, List, Boolean, String, Integer, Decimal |
+
+使用 `fx-cli create --list-namespaces` 命令可以查看完整的命名空间列表和详细信息。
 
 # 创建指定API名称的类
 fx-cli create class MyClass --api-name My_Class__c --name-space com.example
