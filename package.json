@@ -1,0 +1,45 @@
+{
+  "name": "fx-cli",
+  "version": "1.0.0",
+  "description": "纷享销客开发工具CLI，支持代码拉取、部署和Jenkins集成",
+  "main": "bin/fx-cli.js",
+  "bin": {
+    "fx-cli": "./bin/fx-cli.js"
+  },
+  "scripts": {
+    "start": "node ./bin/fx-cli.js",
+    "test": "jest",
+    "build": "echo '构建完成'",
+    "lint": "eslint ."
+  },
+  "keywords": [
+    "fxiaoke",
+    "cli",
+    "development",
+    "deployment",
+    "jenkins"
+  ],
+  "author": "fxiaoke",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "crypto-js": "^4.2.0",
+    "fs-extra": "^11.1.1",
+    "inquirer": "^9.2.12",
+    "jenkins": "^1.0.1",
+    "jszip": "^3.10.1",
+    "ora": "^7.0.1",
+    "request": "^2.88.2",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.54.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

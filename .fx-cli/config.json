@@ -1,0 +1,28 @@
+{
+  "auth": {
+    "domain": "",
+    "certificate": "",
+    "lastAuth": null
+  },
+  "project": {
+    "rootDir": "/Users/jenpeng/Downloads/fx-devtools/fx-cli",
+    "defaultType": "component",
+    "defaultOutputDir": "./fx-app"
+  },
+  "jenkins": {
+    "url": "",
+    "username": "",
+    "token": "",
+    "jobPrefix": "fx-"
+  },
+  "logging": {
+    "level": "info",
+    "file": "/Users/jenpeng/.fx-cli/logs/fx-cli.log",
+    "enableConsole": true,
+    "enableFile": true
+  },
+  "cache": {
+    "enabled": true,
+    "maxAge": 86400000
+  }
+}
