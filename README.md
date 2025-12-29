@@ -1,10 +1,11 @@
 # fx-cli
 
-纷享销客开发工具CLI，支持代码拉取、部署和Jenkins集成，为开发者提供便捷的开发和部署体验。
+纷享销客开发工具CLI，支持代码拉取、部署和资源管理，为开发者提供便捷的开发和部署体验。
 
 ## 功能特性
 
-- 组件和插件管理：支持下载、更新和构建组件及插件
+- 组件和插件管理：支持创建、下载、更新和推送组件及插件
+- 函数和类管理：支持创建、下载、更新和推送函数及类
 - 项目构建和打包：提供完整的构建流程支持
 - 配置管理：灵活的配置文件和认证信息管理
 - 完善的日志和错误处理机制
@@ -103,15 +104,7 @@ fx-cli auth
 
 根据提示输入服务器域名、用户名和密码进行认证。
 
-### 2. 配置Jenkins（可选）
-
-如果需要使用Jenkins相关功能，需要先配置Jenkins服务器信息：
-
-```bash
-fx-cli jenkins setup
-```
-
-### 3. 基本使用
+### 2. 基本使用
 
 查看所有可用命令：
 
@@ -151,11 +144,9 @@ fx-cli --help
 - `-b, --binding-object-api-name <apiName>`: 绑定的业务对象API名称（仅用于 function）
 - `-lns, --list-namespaces`: 查看支持的命名空间清单
 
-**示例：**
-```markdown
-### 创建资源
+#### 创建资源
 
-#### 查看支持的命名空间和返回类型
+##### 查看支持的命名空间和返回类型
 
 ```bash
 # 查看支持的命名空间清单
@@ -164,7 +155,7 @@ fx-cli create --list-namespaces
 fx-cli create -lns
 ```
 
-#### 创建组件
+##### 创建组件
 
 ```bash
 # 创建Vue组件
@@ -177,7 +168,7 @@ fx-cli create component MyAvaComponent --api-name MyAvaComponent__c --sub-type a
 fx-cli create component MyComponent --path ./custom/components
 ```
 
-#### 创建插件
+##### 创建插件
 
 ```bash
 # 创建Vue插件
@@ -190,7 +181,7 @@ fx-cli create plugin MyAvaPlugin --sub-type ava
 fx-cli create plugin MyPlugin --path ./custom/plugins
 ```
 
-#### 创建函数
+##### 创建函数
 
 ```bash
 # 基本语法
@@ -207,7 +198,7 @@ fx-cli create function FormatDate --api-name FormatDate__c --name-space WORKFLOW
 fx-cli create function MyFunction --path ./custom/functions --api-name MyFunction__c --name-space BI --return-type Map
 ```
 
-#### 创建类
+##### 创建类
 
 ```bash
 # 基本语法
@@ -224,7 +215,7 @@ fx-cli create class WorkflowHandler --api-name WorkflowHandler__c --name-space W
 fx-cli create class MyClass --path ./custom/classes --api-name MyClass__c --name-space BI --return-type Map
 ```
 
-#### 命名空间说明
+##### 命名空间说明
 
 fx-cli支持以下命名空间分组：
 
@@ -237,10 +228,6 @@ fx-cli支持以下命名空间分组：
 | WORKFLOW | WORKFLOW, WORKFLOWCommon, WORKFLOWCustom | class, function | Map, List, Boolean, String, Integer, Decimal |
 
 使用 `fx-cli create --list-namespaces` 命令可以查看完整的命名空间列表和详细信息。
-
-# 创建指定API名称的类
-fx-cli create class MyClass --api-name My_Class__c --name-space com.example
-```
 
 #### `fx-cli pull [name]`
 
@@ -354,16 +341,6 @@ fx-cli push --all
 批量推送完成：总成功 46，失败 1
 ```
 
-**失败情况示例：**
-```
-开始执行全类型推送...
-类: 成功 17，失败 1 (MyClass.groovy)
-函数: 成功 11，失败 1 (MyFunction.groovy)
-组件: 成功 13，失败 2 (TestComponent1, TestComponent2)
-插件: 成功 2，失败 0
-批量推送完成：总成功 43，失败 4
-```
-
 **使用场景：**
 - 项目首次部署：一次性推送所有资源到服务器
 - 全面更新：当需要更新项目中所有资源时
@@ -376,7 +353,7 @@ fx-cli push --all
 - 如果推送失败，请检查具体错误信息并处理失败项
 - 推送过程中请勿中断，否则可能导致部分资源未推送
 
-**插件推送特性：**
+#### 插件推送特性
 
 插件推送功能已经从pushService.js中拆分出来，现在由专门的pushPluginService.js处理，提供以下特性：
 
@@ -387,7 +364,7 @@ fx-cli push --all
 - **unchangeableJson.json更新**：自动更新本地unchangeableJson.json文件中的插件记录
 - **固定XML文件名**：插件推送使用固定的`plugin.xml`文件名，不再依赖插件名称
 
-**插件推送详细说明：**
+#### 插件推送详细说明
 
 ##### 基本用法
 
@@ -471,7 +448,7 @@ MyPlugin/
 5. 系统会自动处理版本冲突，无需手动干预
 6. 插件推送使用固定的 `plugin.xml` 文件名，不再依赖插件名称
 
-**函数推送容错机制：**
+#### 函数推送容错机制
 
 函数推送包含三层容错机制，确保在各种复杂情况下都能成功推送：
 
@@ -481,7 +458,7 @@ MyPlugin/
 
 这种多层容错机制特别适用于处理"函数已存在但查询不到"的冲突场景。
 
-**组件推送版本冲突处理：**
+#### 组件推送版本冲突处理
 
 组件推送实现了智能的版本冲突处理机制，能够自动处理以下情况：
 
@@ -489,11 +466,14 @@ MyPlugin/
 2. **智能重试机制**：针对不同类型的错误，系统采用不同的重试策略
 3. **组件键名智能判断**：系统会根据组件是否已存在，智能选择使用原始组件名称或清理后的组件名称作为键名
 
-**默认目录映射：**
-- `class`: `fx-app/main/APL/classes`
-- `function`: `fx-app/main/APL/functions`
-- `component`: `fx-app/main/PWC`
-- `plugin`: `fx-app/main/PWC`
+#### 默认目录映射
+
+| 类型 | 默认目录 |
+|-----|---------|
+| `class` | `fx-app/main/APL/classes` |
+| `function` | `fx-app/main/APL/functions` |
+| `component` | `fx-app/main/PWC/components` |
+| `plugin` | `fx-app/main/PWC/plugins` |
 
 ### 配置管理
 
@@ -521,11 +501,6 @@ MyPlugin/
   },
   "project": {
     "defaultPath": "/path/to/projects"
-  },
-  "jenkins": {
-    "url": "https://jenkins.example.com",
-    "username": "user",
-    "token": "encrypted_token"
   },
   "logging": {
     "level": "info",
