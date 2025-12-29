@@ -6,7 +6,6 @@
 
 - 组件和插件管理：支持下载、更新和构建组件及插件
 - 项目构建和打包：提供完整的构建流程支持
-- Jenkins集成：支持流水线部署、构建触发和状态查询
 - 配置管理：灵活的配置文件和认证信息管理
 - 完善的日志和错误处理机制
 
@@ -17,29 +16,80 @@
 - Node.js >= 14.0.0
 - npm 或 yarn
 
-### 全局安装
-
-```bash
-# 使用 npm 安装
-npm install -g fx-cli
-
-# 或使用 yarn 安装
-yarn global add fx-cli
-```
-
-### 从源码安装
+#### 1. 克隆或下载项目
 
 ```bash
 # 克隆仓库
-git clone <仓库地址>
+git clone https://github.com/jenpeng/fx-cli.git
 cd fx-cli
 
-# 安装依赖
-npm install
+# 或者下载并解压项目文件
+cd fx-cli
+```
 
-# 链接到全局
+#### 2. 安装依赖
+
+```bash
+npm install
+```
+
+#### 3. 全局链接（推荐方式）
+
+使用 npm link 命令将项目链接到全局环境：
+
+```bash
 npm link
 ```
+
+这会在全局环境中创建一个符号链接，指向你的本地项目，这样你就可以在任何地方使用 `fx-cli` 命令了。
+
+#### 4. 直接运行（不推荐全局使用）
+
+如果你不想全局链接，也可以直接运行：
+
+```bash
+# 在项目根目录下执行
+node bin/fx-cli.js --help
+
+# 或者使用 npm 脚本
+npm start -- --help
+```
+
+#### 验证安装
+
+安装完成后，可以验证是否成功：
+
+```bash
+# 查看版本
+fx-cli --version
+
+# 查看帮助
+fx-cli --help
+```
+
+#### 开发模式
+
+如果你计划修改源码，使用 `npm link` 的方式特别适合，因为：
+
+1. **实时更新**：修改源码后，无需重新安装，直接生效
+2. **方便调试**：可以直接在源码中添加调试代码
+3. **版本控制**：可以轻松切换不同版本的代码
+
+#### 注意事项
+
+1. **Node.js 版本**：确保你的 Node.js 版本 >= 14.0.0
+2. **权限问题**：在某些系统上，可能需要管理员权限才能全局安装
+3. **路径问题**：确保 `bin/fx-cli.js` 有执行权限
+
+#### 取消链接
+
+如果你想取消全局链接，可以执行：
+
+```bash
+npm unlink -g fx-cli
+```
+
+这种方式特别适合开发者或需要频繁修改源码的场景，可以避免每次修改后都需要重新打包和安装的繁琐过程。
 
 ## 快速开始
 
@@ -80,49 +130,6 @@ fx-cli --help
 **选项：**
 - `--status`: 查看当前认证状态
 - `--logout`: 退出当前登录
-
-### Jenkins相关命令
-
-#### `fx-cli jenkins setup`
-
-配置Jenkins服务器连接信息。
-
-**选项：**
-- `--url <url>`: Jenkins服务器URL
-- `--username <username>`: Jenkins用户名
-- `--token <token>`: Jenkins API token
-
-#### `fx-cli jenkins build <job>`
-
-触发指定Jenkins任务的构建。
-
-**参数：**
-- `job`: Jenkins任务名称
-
-**选项：**
-- `--parameters, -p <params>`: 构建参数，格式为 key=value
-- `--wait`: 等待构建完成
-
-#### `fx-cli jenkins status <job>`
-
-查询指定Jenkins任务的构建状态。
-
-**参数：**
-- `job`: Jenkins任务名称
-
-**选项：**
-- `--build, -b <number>`: 构建编号，默认为最新构建
-
-#### `fx-cli jenkins log <job>`
-
-查看指定Jenkins任务的构建日志。
-
-**参数：**
-- `job`: Jenkins任务名称
-
-**选项：**
-- `--build, -b <number>`: 构建编号，默认为最新构建
-- `--follow, -f`: 实时跟踪日志输出
 
 ### 资源管理
 
@@ -187,6 +194,7 @@ fx-cli pull class --all
 
 # 拉取所有资源
 fx-cli pull --all
+```
 
 #### `fx-cli push [name]`
 
@@ -482,12 +490,6 @@ fx-cli config --set logging.path /custom/log/path
 - 确保输入的用户名和密码正确
 - 检查服务器域名是否正确
 - 网络连接是否正常
-
-### Jenkins构建失败
-
-- 检查Jenkins服务器配置是否正确
-- 确认有权限触发该任务
-- 查看构建日志获取详细错误信息
 
 ## 开发
 
