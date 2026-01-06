@@ -5,15 +5,10 @@
 
 const path = require('path');
 const fs = require('fs-extra');
-// 简化版的spinner实现，避免依赖问题
-const simpleSpinner = {
-  start: (text) => {
-    console.log(`[处理中] ${text}`);
-    return { stop: () => {} };
-  }
-};
 const { getConfigManager } = require('../core/ConfigManager');
 const { pullSingleComponent, pullAllComponents, pullSingleFunction, pullAllFunctions, pullSingleClass, pullAllClasses, pullAllResources, pullByName } = require('../services/pullService');
+const progressManager = require('../utils/progressManager');
+const api = require('../services/api');
 
 // 不需要全局配置管理器实例，将在工厂函数中创建
 
@@ -73,21 +68,17 @@ const createPullCommand = () => {
     // 合并命令行参数和默认值
     const all = options.all || false;
     
-    // 参数解析逻辑优化：
-    // 1. 首先检查--type参数
-    // 2. 如果没有--type但name是有效的类型，则将name视为类型
-    // 3. 如果使用--all但没有指定类型，需要看name是否是有效类型
+    // 参数解析逻辑：与push命令保持一致，要求显式指定--type参数
     const validTypes = ['component', 'plugin', 'function', 'class'];
     let type = options.type;
     
-    // 如果没有通过--type指定类型，但name是有效的类型
-    if (!type && name && validTypes.includes(name)) {
-      type = name;
-      name = undefined; // 清除name，因为它被用作类型
-    }
-    
-    // 默认类型为component（当既没有指定类型也没有指定名称时）
-    if (!type && !all && !name) {
+    // 如果没有指定类型且不是拉取所有资源，要求用户指定类型
+    if (!type && !all) {
+      // 对于单个资源拉取，需要指定类型或名称
+      if (!name) {
+        throw new Error('必须指定类型（使用 -t 参数）或资源名称');
+      }
+      // 保留默认类型为component，当有名称但没有类型时
       type = 'component';
     }
     
@@ -115,7 +106,8 @@ const createPullCommand = () => {
     }
     
     // 参数验证
-    if (!name && !all) {
+    // 如果没有指定名称且没有 --all，且也没有指定类型，则报错
+    if (!name && !all && !type) {
       throw new Error('必须指定组件/插件/函数名称或使用 --all 参数拉取所有项目');
     }
 
@@ -134,13 +126,7 @@ const createPullCommand = () => {
     const outputDir = path.isAbsolute(output) ? output : path.join(projectRoot, output);
     await fs.ensureDir(outputDir);
     
-    // 使用简化版的spinner
-    const spinnerInstance = simpleSpinner.start(`准备拉取代码...`);
-  
     try {
-      // 停止spinner，因为不同的拉取操作有自己的进度提示
-      spinnerInstance.stop();
-      
       // 拉取逻辑处理
       if (name) {
         // 拉取单个项目 - 为不同类型构建正确的目录路径
@@ -152,28 +138,147 @@ const createPullCommand = () => {
           case 'component':
           case 'plugin':
             const pwcDir = path.join(mainDir, 'PWC');
-            // 先使用name创建基础路径，但实际保存时会在pullByName中使用插件返回的真实name
             targetOutputDir = path.join(pwcDir, type === 'component' ? 'components' : 'plugins');
             break;
           case 'function':
             const aplDir = path.join(mainDir, 'APL');
-            // 函数不创建额外文件夹，直接保存到functions目录
             targetOutputDir = path.join(aplDir, 'functions');
             break;
           case 'class':
             const classAplDir = path.join(mainDir, 'APL');
-            // 类不创建额外文件夹，直接保存到classes目录
             targetOutputDir = path.join(classAplDir, 'classes');
             break;
         }
         
+        // 启动spinner
+        progressManager.startSpinner(`正在拉取 ${type}: ${name}...`);
         const result = await pullByName(name, targetOutputDir, type);
+        // 停止spinner并显示成功消息
+        progressManager.succeedSpinner(`成功拉取 ${type}: ${result.name}`);
         
         logSuccess(`成功拉取 ${type}: ${result.name}`);
         logInfo(`保存路径: ${result.path}`);
       } else if (all && type === undefined) {
         // 只有当完全没有指定类型时，才拉取所有类型的资源
-        const allResults = await pullAllResources(outputDir);
+        progressManager.startSpinner('正在准备拉取所有资源...');
+        
+        // 先获取所有资源类型的总数
+        const resourceTypes = ['component', 'plugin', 'function', 'class'];
+        const allResults = {};
+        
+        // 预计算总资源数 - 先获取每种资源类型的列表
+        let totalResourceCount = 0;
+        const resourceLists = {};
+        
+        // 先获取所有资源列表，计算总数
+        for (const resourceType of resourceTypes) {
+          progressManager.updateSpinner(`正在获取${resourceType}列表...`);
+          
+          let resources = [];
+          try {
+            // 根据资源类型获取资源列表
+            switch (resourceType) {
+              case 'component':
+              case 'plugin':
+                // 直接调用API获取组件/插件列表
+                resources = await api.fetchComponents(resourceType, '');
+                break;
+              case 'function':
+              case 'class':
+                // 获取认证信息
+                const certificateData = await configManager.getAuthInfo() || {};
+                // 获取函数/类列表
+                const pageData = {
+                  pageNumber: 1,
+                  pageSize: 2000,
+                  type: resourceType
+                };
+                const response = await api.syncFunction(pageData, certificateData);
+                // 处理响应，兼容多种格式
+                if (response && response.Value) {
+                  if (Array.isArray(response.Value)) {
+                    resources = response.Value;
+                  } else if (Array.isArray(response.Value.list)) {
+                    resources = response.Value.list;
+                  } else if (Array.isArray(response.Value.items)) {
+                    resources = response.Value.items;
+                  }
+                }
+                break;
+            }
+            resourceLists[resourceType] = resources;
+            totalResourceCount += resources.length;
+          } catch (error) {
+            resourceLists[resourceType] = [];
+            logWarning(`获取${resourceType}列表失败: ${error.message}`);
+          }
+        }
+        
+        // 停止spinner，启动进度条
+        progressManager.stopAllSpinners();
+        const progressBar = progressManager.startProgressBar(totalResourceCount, '正在拉取所有资源...');
+        
+        let processedCount = 0;
+        
+        // 为每种资源类型构建输出目录
+        const fxAppDir = path.join(projectRoot, 'fx-app');
+        const mainDir = path.join(fxAppDir, 'main');
+        const resourceOutputDirs = {
+          'component': path.join(mainDir, 'PWC', 'components'),
+          'plugin': path.join(mainDir, 'PWC', 'plugins'),
+          'function': path.join(mainDir, 'APL', 'functions'),
+          'class': path.join(mainDir, 'APL', 'classes')
+        };
+        
+        // 逐个拉取每种资源类型的资源，实时更新进度条
+        for (const resourceType of resourceTypes) {
+          const resources = resourceLists[resourceType];
+          const targetOutputDir = resourceOutputDirs[resourceType];
+          
+          // 确保输出目录存在
+          await fs.ensureDir(targetOutputDir);
+          
+          allResults[resourceType] = [];
+          
+          // 逐个拉取该类型的资源
+          for (const resource of resources) {
+            try {
+              let result;
+              
+              switch (resourceType) {
+                case 'component':
+                case 'plugin':
+                  // 为每个组件/插件创建单独的目录
+                  const resourceDir = path.join(targetOutputDir, resource.name);
+                  result = await pullSingleComponent(resource, resourceDir, resourceType);
+                  break;
+                case 'function':
+                  result = await pullSingleFunction(resource, targetOutputDir);
+                  break;
+                case 'class':
+                  result = await pullSingleClass(resource, targetOutputDir);
+                  break;
+              }
+              
+              allResults[resourceType].push(result);
+              processedCount++;
+              // 更新进度条
+              progressManager.updateProgressBar(processedCount, `${processedCount}/${totalResourceCount} 正在拉取${resourceType}: ${resource.name || resource.id || '未知'}`);
+            } catch (error) {
+              allResults[resourceType].push({
+                success: false,
+                name: resource.name || resource.id || '未知',
+                error: error.message
+              });
+              processedCount++;
+              // 更新进度条
+              progressManager.updateProgressBar(processedCount, `${processedCount}/${totalResourceCount} 拉取${resourceType}失败: ${resource.name || resource.id || '未知'}`);
+            }
+          }
+        }
+        
+        // 停止进度条
+        progressManager.stopAllProgressBars();
         
         let totalCount = 0;
         let totalSuccess = 0;
@@ -186,18 +291,21 @@ const createPullCommand = () => {
           totalCount += results.length;
           totalSuccess += successCount;
           
-          logInfo(`${resourceType} 资源拉取结果:`);
-          logInfo(`  成功: ${successCount}, 失败: ${failCount}`);
+          logInfo(`${resourceType}: 成功 ${successCount}，失败 ${failCount}`);
           
           // 显示失败的项目
-          results.filter(r => !r.success).forEach(item => {
-            logError(`    - ${item.name || item.id || '未知'}: ${item.error || '未知错误'}`);
-          });
+          const failedItems = results.filter(r => !r.success);
+          if (failedItems.length > 0) {
+            logInfo(`${resourceType}失败列表:`);
+            failedItems.forEach(item => {
+              logError(`  - ${item.name || item.id || '未知'}: ${item.error || '未知错误'}`);
+            });
+          }
         });
         
         logSuccess(`总拉取结果: 成功 ${totalSuccess}/${totalCount}`);
       } else if (type) {
-        // 拉取指定类型的所有项目（这也包括all=true且type已指定的情况）
+        // 拉取指定类型的所有项目
         let results;
         let targetOutputDir = outputDir;
         
@@ -205,32 +313,118 @@ const createPullCommand = () => {
         const fxAppDir = path.join(projectRoot, 'fx-app');
         const mainDir = path.join(fxAppDir, 'main');
         
+        // 根据类型构建正确的目标目录
         switch (type) {
           case 'component':
           case 'plugin':
             const pwcDir = path.join(mainDir, 'PWC');
             targetOutputDir = path.join(pwcDir, type === 'component' ? 'components' : 'plugins');
-            results = await pullAllComponents(targetOutputDir, type);
             break;
           case 'function':
             const aplDir = path.join(mainDir, 'APL');
             targetOutputDir = path.join(aplDir, 'functions');
-            results = await pullAllFunctions(targetOutputDir);
             break;
           case 'class':
             const classAplDir = path.join(mainDir, 'APL');
             targetOutputDir = path.join(classAplDir, 'classes');
-            results = await pullAllClasses(targetOutputDir);
             break;
-          default:
-            throw new Error(`不支持的类型: ${type}`);
         }
         
+        // 获取资源列表（只获取一次）
+        let totalResourceCount = 0;
+        let resources = [];
+        progressManager.startSpinner(`正在获取${type}列表...`);
+        
+        try {
+          const certificateData = await configManager.getAuthInfo() || {};
+          switch (type) {
+            case 'component':
+            case 'plugin':
+              // 获取组件/插件列表
+              resources = await api.fetchComponents(type, '');
+              totalResourceCount = resources.length;
+              break;
+            case 'function':
+            case 'class':
+              // 获取函数/类列表
+              const pageData = {
+                pageNumber: 1,
+                pageSize: 2000,
+                type: type
+              };
+              const response = await api.syncFunction(pageData, certificateData);
+              // 处理响应，兼容多种格式
+              if (response && response.Value) {
+                if (Array.isArray(response.Value)) {
+                  resources = response.Value;
+                } else if (Array.isArray(response.Value.list)) {
+                  resources = response.Value.list;
+                } else if (Array.isArray(response.Value.items)) {
+                  resources = response.Value.items;
+                }
+              }
+              totalResourceCount = resources.length;
+              break;
+          }
+        } catch (error) {
+          logWarning(`获取${type}列表失败，将使用默认进度显示: ${error.message}`);
+        }
+        
+        // 停止spinner，启动进度条
+        progressManager.stopAllSpinners();
+        const progressBar = progressManager.startProgressBar(totalResourceCount, `正在拉取所有${type}资源...`);
+        
+        try {
+          await fs.ensureDir(targetOutputDir);
+          
+          results = [];
+          
+          // 逐个拉取资源，实时更新进度条
+          for (let i = 0; i < resources.length; i++) {
+            const resource = resources[i];
+            try {
+              let result;
+              
+              switch (type) {
+                case 'component':
+                case 'plugin':
+                  // 为每个组件/插件创建单独的目录
+                  const resourceDir = path.join(targetOutputDir, resource.name);
+                  result = await pullSingleComponent(resource, resourceDir, type);
+                  break;
+                case 'function':
+                  result = await pullSingleFunction(resource, targetOutputDir);
+                  break;
+                case 'class':
+                  result = await pullSingleClass(resource, targetOutputDir);
+                  break;
+              }
+              
+              results.push(result);
+              // 更新进度条
+              progressManager.updateProgressBar(i + 1, `${i+1}/${totalResourceCount} 正在拉取: ${resource.name || resource.id || '未知'}`);
+            } catch (error) {
+              results.push({
+                success: false,
+                name: resource.name || resource.id || '未知',
+                error: error.message
+              });
+              // 更新进度条
+              progressManager.updateProgressBar(i + 1, `${i+1}/${totalResourceCount} 拉取失败: ${resource.name || resource.id || '未知'}`);
+            }
+          }
+        } finally {
+          // 停止进度条
+          progressManager.stopAllProgressBars();
+        }
+        
+        const totalCount = results.length;
         const successCount = results.filter(r => r.success).length;
-        const failCount = results.length - successCount;
+        const failCount = totalCount - successCount;
         
-        logSuccess(`成功拉取 ${successCount}/${results.length} 个${type}`);
+        logSuccess(`${type}拉取结果: 成功 ${successCount}/${totalCount}`);
         
+        // 显示失败的项目
         if (failCount > 0) {
           logInfo('失败列表:');
           results.filter(r => !r.success).forEach(item => {
@@ -241,9 +435,8 @@ const createPullCommand = () => {
         throw new Error('参数错误，请检查命令参数');
       }
     } catch (error) {
-      if (spinnerInstance) {
-        spinnerInstance.stop();
-      }
+      // 停止所有进度显示
+      progressManager.stopAll();
       logError('拉取失败: ' + error.message);
       // 不抛出错误，避免显示堆栈跟踪
     }

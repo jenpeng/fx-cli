@@ -78,7 +78,9 @@ const getCertificate = async () => {
     
     throw new Error('认证信息未找到，请检查config.json配置');
   } catch (error) {
-    console.error('获取认证信息失败:', error.message);
+    // 禁用控制台错误输出，保持进度条显示简洁
+    // 使用logger记录错误，不会输出到控制台
+    logger.error('获取认证信息失败:', error.message);
     throw error;
   }
 };
@@ -259,7 +261,7 @@ const request = async (method, endpoint, data = {}, certificate = null) => {
     
     requestLib(options, (err, httpResponse, body) => {
       if (err) {
-        console.error(`API请求失败: ${err.message}`);
+        logger.error(`API请求失败: ${err.message}`);
         reject(err);
       } else {
         try {
@@ -270,28 +272,28 @@ const request = async (method, endpoint, data = {}, certificate = null) => {
               responseBody = JSON.parse(body);
             } catch (jsonError) {
               // 如果解析失败，仍然使用原始字符串
-              console.error(`API响应不是有效的JSON: ${body}`);
+              logger.debug(`API响应不是有效的JSON: ${body}`);
             }
           }
           
           // 检查响应中是否包含"需要升级令牌"的错误信息
           if (responseBody && responseBody.Error && responseBody.Error.Message && 
               responseBody.Error.Message.includes('需要升级令牌')) {
-            console.warn(`⚠️ 令牌需要升级，但操作将继续执行`);
+            logger.warn(`⚠️ 令牌需要升级，但操作将继续执行`);
           }
           
           // 与extension完全一致：检查StatusCode是否等于0，如果不等于0，抛出错误
           // extension的http.js实现：if (body.Result.StatusCode === 0) { resolve(body) } else { reject() }
           if (responseBody.Result && responseBody.Result.StatusCode !== 0) {
             const errorMessage = responseBody.Result.FailureMessage || 'API请求失败';
-            console.error(`API request failed: ${url} Error: ${errorMessage}`);
+            logger.error(`API请求失败: ${url} Error: ${errorMessage}`);
             reject(new Error(errorMessage));
           } else {
             resolve(responseBody);
           }
         } catch (error) {
-          console.error(`处理API响应失败: ${error.message}`);
-          console.error(`原始响应: ${body}`);
+          logger.error(`处理API响应失败: ${error.message}`);
+          logger.debug(`原始响应: ${body}`);
           reject(error);
         }
       }
@@ -308,7 +310,8 @@ const request = async (method, endpoint, data = {}, certificate = null) => {
 const fetchCheckPermission = (url, certificateData) => {
   return new Promise((resolve) => {
     if (!certificateData || !certificateData.domain) {
-      console.warn('未提供证书信息，跳过权限检查');
+      // 使用logger.warn代替console.warn，避免干扰进度条显示
+      logger.warn('未提供证书信息，跳过权限检查');
       resolve();
       return;
     }
@@ -326,9 +329,8 @@ const fetchCheckPermission = (url, certificateData) => {
       })
     }, (err, httpResponse, body) => {
       if (err) {
-        console.error(`权限检查请求失败: ${err.message}`);
-        console.error(`权限检查请求URL: ${checkUrl}`);
         logger.error(`权限检查请求失败: ${err.message}`);
+        logger.debug(`权限检查请求URL: ${checkUrl}`);
         // 权限检查失败不应该阻止后续请求
         resolve();
       } else {
@@ -338,9 +340,8 @@ const fetchCheckPermission = (url, certificateData) => {
             if (res?.Error && !res.Value) {
               // 检查是否是"需要升级令牌"的错误
               if (res.Error?.Message && res.Error.Message.includes('需要升级令牌')) {
-                console.warn(`⚠️ 权限检查提示: 需要升级令牌，但操作将继续执行`);
+                logger.warn(`⚠️ 权限检查提示: 需要升级令牌，但操作将继续执行`);
               } else {
-                console.error(`权限检查错误: ${res.Error?.Message || '未知错误'}`);
                 logger.error(`权限检查错误: ${res.Error?.Message || '未知错误'}`);
               }
               // 权限检查错误不应该阻止后续请求
@@ -349,20 +350,17 @@ const fetchCheckPermission = (url, certificateData) => {
               resolve(res.Value);
             }
           } else if (res && res.Result) {
-            console.error(`权限检查失败: ${res.Result.FailureMessage || '未知错误'}`);
             logger.error(`权限检查失败: ${res.Result.FailureMessage || '未知错误'}`);
             // 权限检查失败不应该阻止后续请求
             resolve();
           } else {
-            console.error(`权限检查失败: 无效的响应格式`);
             logger.error(`权限检查失败: 无效的响应格式`);
             // 无效响应也不应该阻止后续请求
             resolve();
           }
         } catch (parseError) {
-          console.error(`解析权限检查响应失败: ${parseError.message}`);
-          console.error(`原始响应: ${body}`);
           logger.error(`解析权限检查响应失败: ${parseError.message}`);
+          logger.debug(`原始响应: ${body}`);
           // 解析失败不应该阻止后续请求
           resolve();
         }
@@ -419,7 +417,9 @@ const post = async (endpoint, data = {}, certificateData = null) => {
     // 直接使用endpoint，由request函数处理traceId和路径替换
     return await request('post', requestEndpoint, data, certificateData);
   } catch (error) {
-    console.error(`API调用失败 [${requestEndpoint}]:`, error.message || error);
+    // 禁用控制台错误输出，保持进度条显示简洁
+    // 使用logger记录错误，不会输出到控制台
+    logger.error(`API调用失败 [${requestEndpoint}]:`, error.message || error);
     throw error;
   }
 };
@@ -441,7 +441,9 @@ const get = async (endpoint, params = {}, certificateData = null) => {
   try {
     return await request('get', requestEndpoint, params, certificateData);
   } catch (error) {
-    console.error(`API调用失败 [${requestEndpoint}]:`, error.message || error);
+    // 禁用控制台错误输出，保持进度条显示简洁
+    // 使用logger记录错误，不会输出到控制台
+    logger.error(`API调用失败 [${requestEndpoint}]:`, error.message || error);
     throw error;
   }
 };
@@ -537,7 +539,7 @@ const validateToken = async (token) => {
 const fetchComponents = async (type = 'component', apiName = '') => {
   try {
     // 详细日志记录
-    console.log(`正在获取${type === 'component' ? '组件' : '插件'}数据，apiName: "${apiName}"...`);
+    logger.debug(`正在获取${type === 'component' ? '组件' : '插件'}数据，apiName: "${apiName}"...`);
     
     // 直接从配置管理器获取认证信息
     let certificateData = await configManager.getAuthInfo() || {};
@@ -557,15 +559,15 @@ const fetchComponents = async (type = 'component', apiName = '') => {
       apiName: String(apiName || '')
     };
     
-    console.log('发送请求参数:', JSON.stringify(data));
+    logger.debug('发送请求参数:', JSON.stringify(data));
     
     // 直接使用axios发送请求，确保与extension行为一致
     // 参照extension的http.js实现
     const traceId = `fx-cli-${+new Date()}`;
     const fullUrl = `${certificateData.domain || 'https://www.fxiaoke.com'}${endpoint}?traceId=${traceId}`;
     
-    console.log(`准备直接发送请求到: ${fullUrl}`);
-    console.log(`请求头: Authorization=${certificateData.certificate ? '***证书已提供***' : '未提供'}`);
+    logger.debug(`准备直接发送请求到: ${fullUrl}`);
+    logger.debug(`请求头: Authorization=${certificateData.certificate ? '***证书已提供***' : '未提供'}`);
     
     // 进行权限检查，与extension完全一致
     await fetchCheckPermission(fullUrl, certificateData);
@@ -582,12 +584,12 @@ const fetchComponents = async (type = 'component', apiName = '') => {
     }).then(res => res.data);
     
     // 详细记录响应 - 打印完整响应结构
-    console.log('收到API响应，完整响应数据:');
-    console.log('响应类型:', typeof response);
-    console.log('响应键:', response ? Object.keys(response).join(', ') : 'undefined');
-    console.log('Result:', response ? JSON.stringify(response.Result) : 'undefined');
-    console.log('Error:', response ? JSON.stringify(response.Error) : 'undefined'); // 新增错误信息打印
-    console.log('Value:', response && response.Value ? JSON.stringify(response.Value).substring(0, 500) + '...' : 'undefined');
+    logger.debug('收到API响应，完整响应数据:');
+    logger.debug('响应类型:', typeof response);
+    logger.debug('响应键:', response ? Object.keys(response).join(', ') : 'undefined');
+    logger.debug('Result:', response ? JSON.stringify(response.Result) : 'undefined');
+    logger.debug('Error:', response ? JSON.stringify(response.Error) : 'undefined');
+    logger.debug('Value:', response && response.Value ? JSON.stringify(response.Value).substring(0, 500) + '...' : 'undefined');
     
     // 注意：令牌升级警告已在request函数中统一处理，这里不再重复处理
     
@@ -600,39 +602,40 @@ const fetchComponents = async (type = 'component', apiName = '') => {
     let components = [];
     if (response && response.Value && response.Value.components) {
       components = response.Value.components;
-      console.log(`从Value.components获取到${components.length}个${type === 'component' ? '组件' : '插件'}`);
+      logger.debug(`从Value.components获取到${components.length}个${type === 'component' ? '组件' : '插件'}`);
       
       // 使用与extension相同的小写全局变量名
       if (type === 'component') {
         global.Fx.components = components;
-        console.log('已设置全局.Fx.components，与extension保持一致');
+        logger.debug('已设置全局.Fx.components，与extension保持一致');
       } else {
         global.Fx.plugins = components;
-        console.log('已设置全局.Fx.plugins，与extension保持一致');
+        logger.debug('已设置全局.Fx.plugins，与extension保持一致');
       }
     } else {
-      console.log('未从响应中找到components数据');
+      logger.debug('未从响应中找到components数据');
       // 如果没有找到components，尝试使用其他可能的数据结构
       if (response && response.Value) {
         if (Array.isArray(response.Value)) {
           components = response.Value;
-          console.log(`从Value数组获取到${components.length}个${type === 'component' ? '组件' : '插件'}`);
+          logger.debug(`从Value数组获取到${components.length}个${type === 'component' ? '组件' : '插件'}`);
         } else {
           components = [response.Value];
-          console.log('尝试将Value作为单个组件/插件');
+          logger.debug('尝试将Value作为单个组件/插件');
         }
       }
     }
     
     // 过滤出有效的组件
     const validComponents = components.filter(comp => comp && (comp.apiName || comp.api_code) && (comp.name || comp.label));
-    console.log(`过滤后有效${type === 'component' ? '组件' : '插件'}数量: ${validComponents.length}`);
+    logger.debug(`过滤后有效${type === 'component' ? '组件' : '插件'}数量: ${validComponents.length}`);
     
     return validComponents;
   } catch (error) {
-    // 详细错误日志记录
-    console.error('获取组件/插件数据失败:', error.message);
-    console.error('错误详情:', error.stack);
+    // 禁用控制台错误输出，保持进度条显示简洁
+    // 使用logger记录错误，不会输出到控制台
+    logger.error('获取组件/插件数据失败:', error.message);
+    logger.debug('错误详情:', error.stack);
     throw error;
   }
 };
@@ -655,11 +658,11 @@ const uploadFile = async (filePath) => {
     const content = await fs.promises.readFile(filePath, 'utf8');
     const base64String = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(content));
     
-    console.log('开始上传文件:', fileName);
-    console.log('API路径:', '/FHH/EMDHCompBuild/VscodeExtension/uploadFile');
-     console.log('请求数据:', { fileName, base64String });
+    logger.debug('开始上传文件:', fileName);
+    logger.debug('API路径:', '/FHH/EMDHCompBuild/VscodeExtension/uploadFile');
+    logger.debug('请求数据:', { fileName, base64String });
      const uploadResult = await post('/FHH/EMDHCompBuild/VscodeExtension/uploadFile', { fileName, base64String });
-     console.log('上传结果:', uploadResult);
+     logger.debug('上传结果:', uploadResult);
     
     // 根据服务器返回的格式提取TempFileName或nPath
     if (uploadResult.Value && uploadResult.Value.TempFileName) {
@@ -670,12 +673,48 @@ const uploadFile = async (filePath) => {
       // 处理服务器返回nPath的情况
       return { TempFileName: uploadResult.Value.nPath };
     } else {
-      console.warn('未找到TempFileName或nPath，返回完整响应:', uploadResult);
+      // 禁用控制台警告输出，保持进度条显示简洁
+      logger.warn('未找到TempFileName或nPath，返回完整响应:', uploadResult);
       return uploadResult;
     }
   } catch (error) {
-    console.error('上传文件失败:', error.message);
-    console.error('错误详情:', error.response?.data || error);
+    // 禁用控制台错误输出，保持进度条显示简洁
+    logger.error('上传文件失败:', error.message);
+    logger.debug('错误详情:', error.response?.data || error);
+    throw error;
+  }
+};
+
+/**
+ * 从内容上传单个文件（用于GitHub推送）
+ * @param {string} fileName - 文件名
+ * @param {string} content - 文件内容
+ * @returns {Promise<Object>} 上传结果，包含TempFileName
+ */
+const uploadFileFromContent = async (fileName, content) => {
+  try {
+    const base64String = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(content));
+    
+    logger.debug('开始上传文件（从内容）:', fileName);
+    const uploadResult = await post('/FHH/EMDHCompBuild/VscodeExtension/uploadFile', { fileName, base64String });
+    logger.debug('上传结果:', uploadResult);
+    
+    // 根据服务器返回的格式提取TempFileName或nPath
+    if (uploadResult.Value && uploadResult.Value.TempFileName) {
+      return uploadResult.Value;
+    } else if (uploadResult.TempFileName) {
+      return uploadResult;
+    } else if (uploadResult.Value && uploadResult.Value.nPath) {
+      return { TempFileName: uploadResult.Value.nPath };
+    } else {
+      // 禁用控制台警告输出，保持进度条显示简洁
+      logger.warn('未找到TempFileName或nPath，返回完整响应:', uploadResult);
+      return uploadResult;
+    }
+  } catch (error) {
+    // 禁用控制台错误输出，保持进度条显示简洁
+    logger.error('上传文件失败（从内容）:', error.message);
+    logger.debug('错误详情:', error.response?.data || error);
     throw error;
   }
 };
@@ -721,19 +760,21 @@ const fetchFunctionInfo = async (params = {}, certificateData = null) => {
       delete formattedParams.pageNumber;
     }
     
-    console.log('正在查询函数/类信息，参数:', JSON.stringify(formattedParams));
+    logger.debug('正在查询函数/类信息，参数:', JSON.stringify(formattedParams));
     const response = await post('/FHH/EMDHFUNC/biz/find', formattedParams, certificateData);
     
     // 错误处理和数据验证
     if (response.Result && response.Result.StatusCode) {
-      console.error('查询函数/类失败:', response.Result.FailureMessage || '未知错误');
+      // 禁用控制台错误输出，保持进度条显示简洁
+      logger.error('查询函数/类失败:', response.Result.FailureMessage || '未知错误');
       throw new Error(response.Result.FailureMessage || '查询函数/类失败');
     }
     
-    console.log('查询函数/类成功，返回数据类型:', response.Value ? Array.isArray(response.Value) ? 'array' : typeof response.Value : 'undefined');
+    logger.debug('查询函数/类成功，返回数据类型:', response.Value ? Array.isArray(response.Value) ? 'array' : typeof response.Value : 'undefined');
     return response;
   } catch (error) {
-    console.error('查询函数/类时发生错误:', error.message);
+    // 禁用控制台错误输出，保持进度条显示简洁
+    logger.error('查询函数/类时发生错误:', error.message);
     // 参照fs-cli实现，如果查询失败，返回包含空items的响应
     return { Result: { StatusCode: 0 }, Value: { items: [] } };
   }
@@ -756,7 +797,7 @@ const syncFunction = async (params = {}, certificateData = null) => {
     
     const requestParams = { ...defaultParams, ...params };
     
-    console.log('正在同步函数/类列表，参数:', JSON.stringify(requestParams));
+    logger.debug('正在同步函数/类列表，参数:', JSON.stringify(requestParams));
     
     const response = await post('/FHH/EMDHFUNC/biz/download', requestParams, certificateData);
     
@@ -764,7 +805,8 @@ const syncFunction = async (params = {}, certificateData = null) => {
     
     // 错误处理和数据验证
     if (response.Result && response.Result.StatusCode) {
-      console.error('获取函数/类列表失败:', response.Result.FailureMessage || '未知错误');
+      // 禁用控制台错误输出，保持进度条显示简洁
+      logger.error('获取函数/类列表失败:', response.Result.FailureMessage || '未知错误');
       throw new Error(response.Result.FailureMessage || '获取函数/类列表失败');
     }
     
@@ -779,10 +821,11 @@ const syncFunction = async (params = {}, certificateData = null) => {
       }
     }
     
-    console.log('同步函数/类列表成功，list长度:', response.Value.list.length || 0);
+    logger.debug('同步函数/类列表成功，list长度:', response.Value.list.length || 0);
     return response;
   } catch (error) {
-    console.error('同步函数/类列表时发生错误:', error.message);
+    // 禁用控制台错误输出，保持进度条显示简洁
+    logger.error('同步函数/类列表时发生错误:', error.message);
     // 参照fs-cli实现，如果获取失败，返回包含空list的成功响应，以便调用方可以继续执行
     return { Result: { StatusCode: 0 }, Value: { list: [] } };
   }
@@ -833,18 +876,18 @@ const getSingleFunction = async (idOrName, type = 'function', bindingObjectApiNa
       }
     }
     
-    console.log('解析后的items数量:', items.length);
+    logger.debug('解析后的items数量:', items.length);
     if (items.length > 0) {
-      console.log('第一个item的所有字段:', Object.keys(items[0]));
-      console.log('第一个item的funcName:', items[0].funcName);
-      console.log('第一个item的apiName:', items[0].apiName);
-      console.log('第一个item的name:', items[0].name);
+      logger.debug('第一个item的所有字段:', Object.keys(items[0]));
+      logger.debug('第一个item的funcName:', items[0].funcName);
+      logger.debug('第一个item的apiName:', items[0].apiName);
+      logger.debug('第一个item的name:', items[0].name);
     }
     
     let targetItem = null;
     if (items.length > 0) {
-      console.log('查找目标函数:', idOrName);
-      console.log('items数量:', items.length);
+      logger.debug('查找目标函数:', idOrName);
+      logger.debug('items数量:', items.length);
       
       // 优先通过ID匹配，然后通过名称匹配，同时兼容funcId/funcName和apiName/name字段
       targetItem = items.find(item => {
@@ -855,23 +898,23 @@ const getSingleFunction = async (idOrName, type = 'function', bindingObjectApiNa
                      item.api_name === idOrName || 
                      item.function_name === idOrName;
         if (match) {
-          console.log('找到匹配项:', { funcId: item.funcId, apiName: item.apiName, funcName: item.funcName, api_name: item.api_name, function_name: item.function_name });
+          logger.debug('找到匹配项:', { funcId: item.funcId, apiName: item.apiName, funcName: item.funcName, api_name: item.api_name, function_name: item.function_name });
         }
         return match;
       });
       
       if (!targetItem) {
-        console.log('未找到匹配项，所有item的apiName:', items.map(item => item.apiName));
-        console.log('未找到匹配项，所有item的api_name:', items.map(item => item.api_name));
+        logger.debug('未找到匹配项，所有item的apiName:', items.map(item => item.apiName));
+        logger.debug('未找到匹配项，所有item的api_name:', items.map(item => item.api_name));
       }
     }
     
     if (targetItem) {
       // 检查targetItem是否已经包含完整的函数信息（包括body和parameters）
       if (targetItem && targetItem.body && targetItem.parameters) {
-        console.log('find API已返回完整函数信息，无需调用download');
-        console.log('targetItem的所有字段:', Object.keys(targetItem));
-        console.log('targetItem的ID相关字段:', {
+        logger.debug('find API已返回完整函数信息，无需调用download');
+        logger.debug('targetItem的所有字段:', Object.keys(targetItem));
+        logger.debug('targetItem的ID相关字段:', {
           id: targetItem.id,
           funcId: targetItem.funcId,
           api_name: targetItem.api_name,
@@ -881,7 +924,7 @@ const getSingleFunction = async (idOrName, type = 'function', bindingObjectApiNa
       }
       
       // 使用download API获取完整内容
-      console.log('准备下载函数详情，使用的ID:', targetItem.funcId || targetItem.id);
+      logger.debug('准备下载函数详情，使用的ID:', targetItem.funcId || targetItem.id);
       const downloadResponse = await post('/FHH/EMDHFUNC/biz/download', {
         funcId: targetItem.funcId || targetItem.id,
         type: type  // 使用字符串类型：'function' 或 'class'
@@ -889,7 +932,8 @@ const getSingleFunction = async (idOrName, type = 'function', bindingObjectApiNa
       
       // 错误处理和数据验证
       if (downloadResponse.Result && downloadResponse.Result.StatusCode) {
-        console.error('下载函数/类代码失败:', downloadResponse.Result.FailureMessage || '未知错误');
+        // 禁用控制台错误输出，保持进度条显示简洁
+        logger.error('下载函数/类代码失败:', downloadResponse.Result.FailureMessage || '未知错误');
         throw new Error(downloadResponse.Result.FailureMessage || '下载函数/类代码失败');
       }
       
@@ -903,10 +947,11 @@ const getSingleFunction = async (idOrName, type = 'function', bindingObjectApiNa
       throw new Error(`${type === 'class' ? '类' : '函数'} ${idOrName} 下载失败，没有返回内容`);
     }
     
-    console.log(`${type === 'class' ? '类' : '函数'} ${idOrName} 未找到`);
+    logger.debug(`${type === 'class' ? '类' : '函数'} ${idOrName} 未找到`);
     throw new Error(`${type === 'class' ? '类' : '函数'} ${idOrName} 未找到`);
   } catch (error) {
-    console.error(`获取${type === 'class' ? '类' : '函数'} ${idOrName} 详情时发生错误:`, error.message);
+    // 禁用控制台错误输出，保持进度条显示简洁
+    logger.error(`获取${type === 'class' ? '类' : '函数'} ${idOrName} 详情时发生错误:`, error.message);
     throw error;
   }
 };
@@ -927,6 +972,7 @@ module.exports = {
   buildComponent,
   getBuildResult,
   uploadFile,
+  uploadFileFromContent,
   login,
   validateToken
 };

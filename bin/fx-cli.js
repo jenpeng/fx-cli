@@ -154,43 +154,33 @@ const registerCommands = () => {
         await logCommand.execute({ ...options, jobName, buildNumber });
       });
 
-    // Jenkins集成命令
+    // GitHub推送命令
+    // 先导入命令对象，然后使用addCommand注册
+    const githubPushCommand = require('../src/commands/githubPush');
+    program.addCommand(githubPushCommand);
+
+    // GitHub配置管理命令
     program
-      .command('jenkins')
-      .description('Jenkins集成相关命令')
-      .addCommand(
-        new program.Command('setup')
-          .description('配置Jenkins集成')
-          .action(async () => {
-            const jenkinsSetupCommand = require('../src/commands/jenkins/setup');
-            await jenkinsSetupCommand.execute();
-          })
-      )
-      .addCommand(
-        new program.Command('pipeline')
-          .description('列出所有Jenkins流水线')
-          .action(async () => {
-            const jenkinsPipelineCommand = require('../src/commands/jenkins/pipeline');
-            await jenkinsPipelineCommand.execute();
-          })
-      )
-      .addCommand(
-        new program.Command('build <name>')
-          .description('触发Jenkins构建')
-          .option('-p, --params <params>', '指定构建参数，格式为JSON')
-          .action(async (name, options) => {
-            const jenkinsBuildCommand = require('../src/commands/jenkins/build');
-            await jenkinsBuildCommand.execute(name, options);
-          })
-      )
-      .addCommand(
-        new program.Command('status <id>')
-          .description('查看构建状态')
-          .action(async (id) => {
-            const jenkinsStatusCommand = require('../src/commands/jenkins/status');
-            await jenkinsStatusCommand.execute(id);
-          })
-      );
+      .command('github-config')
+      .description('管理GitHub仓库配置')
+      .option('--list', '列出所有仓库配置')
+      .option('--add', '添加仓库配置')
+      .option('--update', '更新仓库配置')
+      .option('--remove', '删除仓库配置')
+      .option('--export <path>', '导出配置到文件')
+      .option('--import <path>', '从文件导入配置')
+      .option('--clean', '清理所有配置')
+      .option('--stats', '显示使用统计')
+      .option('--url <url>', '仓库URL')
+      .option('--name <name>', '仓库名称')
+      .option('--branch <branch>', '默认分支')
+      .option('--types <types>', '推送类型，逗号分隔')
+      .option('--overwrite', '覆盖已存在的资源')
+      .option('--dry-run', '试运行模式')
+      .action(async (options) => {
+        const githubConfigCommand = require('../src/commands/githubConfig');
+        await githubConfigCommand.execute(options);
+      });
 
     // 工具命令
     program

@@ -44,8 +44,8 @@ class Logger {
   initialize() {
     try {
       // 使用默认日志配置，避免依赖配置管理器
-      // 设置日志级别 - 临时改为debug级别以查看详细调试信息
-      this.setLogLevel('debug');
+      // 默认日志级别为 WARNING，仅输出警告和错误日志，保持进度条显示简洁
+      this.setLogLevel('warning');
       
       // 文件日志默认关闭，可在ConfigManager初始化后通过setLogFile方法启用
       this.isFileLoggingEnabled = false;
@@ -59,7 +59,7 @@ class Logger {
     } catch (error) {
       console.error('Failed to initialize logger configuration:', error.message);
       // 回退到默认配置
-      this.setLogLevel('info');
+      this.setLogLevel('warning');
     }
   }
 
@@ -104,26 +104,12 @@ class Logger {
    * @param {Object|null} meta - 附加元数据（可选）
    */
   log(level, message, error = null, meta = null) {
-    if (level.value < this.logLevel.value) {
-      return;
-    }
-
-    const timestamp = new Date().toISOString();
-    const logMessage = `${timestamp} [${level.name.toUpperCase()}] ${message}`;
-    
-    // 控制台输出，使用颜色
-    const coloredMessage = colorText(logMessage, level.color);
-    console[level.value >= LOG_LEVELS.ERROR.value ? 'error' : 'log'](coloredMessage);
-
-    // 输出错误堆栈（如果有）
-    if (error) {
-      const errorStack = error.stack || error.message;
-      console.error(colorText(errorStack, level.color));
-    }
-
-    // 写入文件（如果启用）
+    // 禁用所有控制台日志输出，保持进度条显示简洁
+    // 仅保留文件日志记录（如果启用）
     if (this.isFileLoggingEnabled && this.logFile) {
       try {
+        const timestamp = new Date().toISOString();
+        const logMessage = `${timestamp} [${level.name.toUpperCase()}] ${message}`;
         let fileLogContent = logMessage;
         if (error) {
           fileLogContent += `\n${error.stack || error.message}`;
@@ -135,7 +121,7 @@ class Logger {
         
         fs.appendFileSync(this.logFile, fileLogContent);
       } catch (fileError) {
-        console.error(`Failed to write to log file: ${fileError.message}`);
+        // 防止无限循环，不输出文件写入错误
       }
     }
   }

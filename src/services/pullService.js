@@ -37,7 +37,6 @@ const updateUnchangeableJson = async (type, resourceInfo) => {
       // 尝试使用funcName、name或其他可能的字段
       apiName = resourceInfo.funcName || resourceInfo.name;
       if (!apiName) {
-        console.error(`更新unchangeableJson.json失败: 资源缺少必要的apiName或name字段`);
         return;
       }
       // 如果apiName不包含__c后缀，添加它
@@ -69,9 +68,7 @@ const updateUnchangeableJson = async (type, resourceInfo) => {
     
     // 写入更新后的内容
     await fs.writeFile(unchangeableJsonPath, JSON.stringify(unchangeableJsonContent, null, 2));
-    console.log(`已更新unchangeableJson.json，记录${type} [${resourceInfo.name || resourceInfo.apiName || resourceInfo.funcName}]`);
   } catch (error) {
-    console.error(`更新unchangeableJson.json失败: ${error.message}`);
     // 不抛出错误，避免影响主流程
   }
 };
@@ -94,12 +91,8 @@ const writeDebugLog = async (data, filename) => {
  */
 const pullSingleComponent = async (component, outputDir, type = 'component') => {
   try {
-    console.log(`正在处理组件: ${component.name} (${component.apiName})`);
-    
     // 使用从pullAllResources传递的outputDir作为保存目录
     const componentDir = outputDir;
-    
-    console.log(`组件保存目录: ${componentDir}`);
     
     // 确保目录存在
     await fs.ensureDir(componentDir);
@@ -118,7 +111,6 @@ const pullSingleComponent = async (component, outputDir, type = 'component') => 
     const promiseIterable = [];
     const files = component[mode] || [];
     
-    console.log(`找到${files.length}个源文件`);
     for (const file of files) {
       promiseIterable.push(downloadFileToDir(file, srcPath));
     }
@@ -128,7 +120,6 @@ const pullSingleComponent = async (component, outputDir, type = 'component') => 
       const staticPath = path.join(componentDir, 'static');
       await fs.ensureDir(staticPath);
       
-      console.log(`找到${component.images.length}个静态资源`);
       for (const image of component.images) {
         promiseIterable.push(downloadFileToDir(image, staticPath));
       }
@@ -141,13 +132,11 @@ const pullSingleComponent = async (component, outputDir, type = 'component') => 
     if (type === 'plugin') {
       const entryPath = path.join(srcPath, 'entry.js');
       if (await fs.pathExists(entryPath)) {
-        console.log(`删除默认入口文件: ${entryPath}`);
         await fs.unlink(entryPath);
       }
     } else {
       const entryPath = path.join(srcPath, 'entry.vue');
       if (await fs.pathExists(entryPath)) {
-        console.log(`删除默认入口文件: ${entryPath}`);
         await fs.unlink(entryPath);
       }
     }
@@ -156,20 +145,17 @@ const pullSingleComponent = async (component, outputDir, type = 'component') => 
     if (component.mateXml) {
       const xmlPath = path.join(componentDir, `${type === 'component' ? 'component' : 'plugin'}.xml`);
       await fs.writeFile(xmlPath, component.mateXml);
-      console.log(`保存${path.basename(xmlPath)}文件`);
     }
     
     // 更新unchangeableJson.json记录
     await updateUnchangeableJson(type, component);
     
-    console.log(`✓ 组件 ${component.name} 拉取成功`);
     return {
       success: true,
       message: `成功拉取组件: ${component.name}`,
       path: componentDir
     };
   } catch (error) {
-    console.error(`拉取组件失败: ${error.message}`);
     throw error;
   }
 };
@@ -177,8 +163,6 @@ const pullSingleComponent = async (component, outputDir, type = 'component') => 
 // 参照extension的downloadFileToDir实现
 const downloadFileToDir = async (file, dirPath) => {
   try {
-    console.log(`下载文件: ${file.fileName}`);
-    
     // 构建请求参数
     const requestData = { nPath: file.filePath };
     
@@ -187,7 +171,8 @@ const downloadFileToDir = async (file, dirPath) => {
     
     // 调用API下载文件，添加/FHH前缀以匹配extension实现
     // 关键修复：使用正确的EMDH路径
-  const response = await api.post('/FHH/EMDHCompBuild/VscodeExtension/downloadFile', requestData, certificateData);    
+    const response = await api.post('/FHH/EMDHCompBuild/VscodeExtension/downloadFile', requestData, certificateData);    
+    
     // 检查响应
     if (!response || !response.Value || !response.Value.base64String) {
       throw new Error(`无法获取文件 ${file.fileName} 的内容`);
@@ -209,10 +194,8 @@ const downloadFileToDir = async (file, dirPath) => {
     const content = Buffer.from(response.Value.base64String, 'base64');
     await fs.writeFile(filePath, content);
     
-    console.log(`文件已保存: ${filePath}`);
     return filePath;
   } catch (error) {
-    console.error(`下载文件失败: ${file.fileName} - ${error.message}`);
     throw error;
   }
 };
@@ -225,23 +208,16 @@ const downloadFileToDir = async (file, dirPath) => {
  */
 const pullAllComponents = async (outputDir, type = 'component') => {
   try {
-    console.log(`正在拉取所有${type === 'component' ? '组件' : '插件'}...`);
-    console.log(`组件保存根目录: ${outputDir}`);
-    
     // 参照extension实现，使用空apiName参数获取所有组件
     const components = await api.fetchComponents(type, '');
-    
-    console.log(`获取到${components.length}个${type === 'component' ? '组件' : '插件'}`);
     
     const results = [];
     
     if (!Array.isArray(components) || components.length === 0) {
-      console.log(`没有找到${type === 'component' ? '组件' : '插件'}，跳过拉取`);
       return results;
     }
     
-      // 直接使用传入的outputDir作为目标基础目录
-    // 路径构建逻辑已经在pull.js中处理完成
+    // 直接使用传入的outputDir作为目标基础目录
     const targetBaseDir = outputDir;
     
     await fs.ensureDir(targetBaseDir);
@@ -254,17 +230,13 @@ const pullAllComponents = async (outputDir, type = 'component') => {
           throw new Error(`组件信息不完整: ${JSON.stringify(component)}`);
         }
         
-        console.log(`正在拉取: ${component.name} (${component.apiName})`);
-        
         // 为每个组件在对应目录下创建单独的目录
         const targetComponentDir = path.join(targetBaseDir, component.name);
-        console.log(`组件保存目录: ${targetComponentDir}`);
         
         // 直接使用从API获取的完整组件数据，正确传递outputDir参数
         const result = await pullSingleComponent(component, targetComponentDir, type);
         results.push(result);
       } catch (error) {
-        console.error(`拉取${component.name}失败: ${error.message}`);
         results.push({
           success: false,
           name: component.name || '未知组件',
@@ -275,7 +247,6 @@ const pullAllComponents = async (outputDir, type = 'component') => {
     
     return results;
   } catch (error) {
-    console.error(`拉取所有${type === 'component' ? '组件' : '插件'}失败: ${error.message}`);
     throw error;
   }
 };
@@ -288,10 +259,6 @@ const pullAllComponents = async (outputDir, type = 'component') => {
  */
 const pullSingleFunction = async (functionInfo, outputDir) => {
   try {
-    // 不再调用API，直接使用传入的functionInfo中的数据
-    // 这样可以避免因API调用失败而无法保存函数文件
-    console.log(`正在保存函数代码: ${functionInfo.name}`);
-    
     if (!functionInfo.content) {
       throw new Error(`无法获取函数代码内容: ${functionInfo.name}`);
     }
@@ -308,7 +275,6 @@ const pullSingleFunction = async (functionInfo, outputDir) => {
     // 更新unchangeableJson.json记录
     await updateUnchangeableJson('function', functionInfo);
     
-    console.log(`函数 ${functionInfo.name} 保存成功到: ${filePath}`);
     return {
       success: true,
       name: functionInfo.name,
@@ -334,7 +300,6 @@ const pullAllFunctions = async (outputDir) => {
     const certificateData = await configManager.getAuthInfo() || {};
     
     // 获取函数列表 - 使用syncFunction来批量获取函数列表
-    console.log('正在获取函数列表...');
     const pageData = {
       pageNumber: 1,
       pageSize: 2000,
@@ -347,9 +312,6 @@ const pullAllFunctions = async (outputDir) => {
       throw new Error(`获取函数列表失败: ${response.Result.FailureMessage || '未知错误'}`);
     }
     
-    // 将响应数据写入调试日志文件
-    await writeDebugLog(response, 'functions-response');
-    
     // 从Value.list或Value.items或直接从Value获取数据，兼容多种格式
     let functions = [];
     if (response && response.Value) {
@@ -361,12 +323,10 @@ const pullAllFunctions = async (outputDir) => {
         functions = response.Value.items;
       }
     }
-    console.log(`获取到${functions.length}个函数`);
     
     const results = [];
     
     if (!Array.isArray(functions) || functions.length === 0) {
-      console.log('没有找到函数，跳过拉取');
       return results;
     }
 
@@ -378,12 +338,9 @@ const pullAllFunctions = async (outputDir) => {
           throw new Error(`函数信息不完整: ${JSON.stringify(func)}`);
         }
         
-        console.log(`正在拉取: ${func.name}`);
         const result = await pullSingleFunction(func, outputDir);
         results.push(result);
-        console.log(`✓ 成功拉取: ${func.name}`);
       } catch (error) {
-        console.error(error.message);
         results.push({
           success: false,
           name: func.funcName || '未知函数',
@@ -432,11 +389,9 @@ const pullByName = async (name, outputDir, type) => {
   try {
     if (type === 'component' || type === 'plugin') {
       // 参照extension实现，使用downloadCode接口获取组件/插件详细信息
-      console.log(`===== 开始拉取${type === 'component' ? '组件' : '插件'} [${name}] =====`);
       
       try {
         // 获取认证信息
-        console.log('正在获取认证信息...');
         const certificateData = await configManager.getAuthInfo();
         
         if (!certificateData || !certificateData.domain || !certificateData.certificate) {
@@ -451,18 +406,11 @@ const pullByName = async (name, outputDir, type) => {
           apiName: apiName
         };
         
-        console.log('构建请求参数:', JSON.stringify(requestParams));
-        
         // 调用downloadCode接口获取组件/插件数据
         // 注意：不要在URL前添加/FHH前缀，因为post函数内部会自动添加
-        console.log(`正在调用API获取${type === 'component' ? '组件' : '插件'}数据...`);
         const response = await api.post('/EMDHCompBuild/VscodeExtension/downloadCode', requestParams, certificateData);
         
-        // 保存调试日志
-        await writeDebugLog(response, `${type}-response-${Date.now()}.json`);
-        
         // 处理响应结果
-        console.log('收到API响应，开始解析...');
         if (!response) {
           throw new Error('API返回空响应');
         }
@@ -485,10 +433,8 @@ const pullByName = async (name, outputDir, type) => {
         
         // 获取组件/插件数据
         const componentData = response.Value.components[0];
-        console.log(`找到匹配项: ${componentData.name || '未知名称'}`);
         
         // 确保组件/插件数据格式正确，添加必要的字段
-        console.log('检查组件/插件数据格式...');
         // 检查是否有fileTree、files或sourceFiles字段
         if (!componentData.fileTree && !componentData.files && !componentData.sourceFiles) {
           throw new Error('组件/插件数据格式错误，缺少文件树信息(fileTree/files/sourceFiles)');
@@ -496,27 +442,21 @@ const pullByName = async (name, outputDir, type) => {
         
         // 如果没有fileTree字段，尝试使用files字段
         if (!componentData.fileTree && componentData.files) {
-          console.log('使用files字段替代fileTree...');
           componentData.fileTree = componentData.files;
         }
         
         // 如果没有fileTree字段，尝试使用sourceFiles字段
         if (!componentData.fileTree && componentData.sourceFiles) {
-          console.log('使用sourceFiles字段替代fileTree...');
           componentData.fileTree = componentData.sourceFiles;
         }
-        
-        console.log(`成功获取${type === 'component' ? '组件' : '插件'}数据，开始保存...`);
         
         // 为插件使用其真实的name属性创建保存目录
         const finalOutputDir = path.join(outputDir, componentData.name);
         // 调用pullSingleComponent函数保存组件/插件
         const result = await pullSingleComponent(componentData, finalOutputDir, type);
         // 返回修改后的结果，包含正确的name
-        console.log(`===== ${type === 'component' ? '组件' : '插件'} [${name}] 拉取成功 =====`);
         return { ...result, name: componentData.name };
       } catch (error) {
-        console.error(`拉取${type === 'component' ? '组件' : '插件'}失败:`, error.message);
         throw new Error(`拉取${type === 'component' ? '组件' : '插件'} [${name}] 失败: ${error.message}`);
       }
     } else if (type === 'function' || type === 'class') {
@@ -534,9 +474,6 @@ const pullByName = async (name, outputDir, type) => {
         type: type // 使用字符串'function'或'class'
       };
       
-      console.log(`正在获取${type === 'function' ? '函数' : '类'} [${name}] 的详细信息...`);
-      console.log('调用参数:', JSON.stringify(data));
-      
       // 调用现有的syncFunction函数
       const response = await api.syncFunction(data, certificateData);
       
@@ -549,7 +486,6 @@ const pullByName = async (name, outputDir, type) => {
       let items = [];
       if (response && response.Value && Array.isArray(response.Value.list)) {
         items = response.Value.list;
-        console.log(`成功获取到${items.length}条数据`);
       }
       
       if (items.length === 0) {
@@ -567,9 +503,6 @@ const pullByName = async (name, outputDir, type) => {
       
       // 如果找到精确匹配，使用它；否则使用第一项
       const targetItem = exactMatch || items[0];
-      console.log(`找到匹配项: ${targetItem.apiName || targetItem.funcName || targetItem.name}`);
-      
-      console.log(`成功获取${type === 'function' ? '函数' : '类'}数据，准备保存...`);
       
       // 调用相应的保存函数
       return type === 'function' 
@@ -579,7 +512,6 @@ const pullByName = async (name, outputDir, type) => {
       throw new Error(`不支持的类型: ${type}`);
     }
   } catch (error) {
-    console.error(`拉取${type}失败:`, error.message);
     throw error;
   }
 };
@@ -592,13 +524,6 @@ const pullByName = async (name, outputDir, type) => {
  */
 const pullSingleClass = async (classInfo, outputDir) => {
   try {
-    // 获取认证信息
-    const certificateData = await configManager.getAuthInfo() || {};
-    
-    // 不再调用API，直接使用传入的classInfo中的数据
-    // 这样可以避免因API调用失败而无法保存类文件
-    console.log(`正在保存类代码: ${classInfo.name}`);
-    
     if (!classInfo.content) {
       throw new Error(`无法获取类代码内容: ${classInfo.name}`);
     }
@@ -615,7 +540,6 @@ const pullSingleClass = async (classInfo, outputDir) => {
     // 更新unchangeableJson.json记录
     await updateUnchangeableJson('class', classInfo);
     
-    console.log(`类 ${classInfo.name} 保存成功到: ${filePath}`);
     return {
       success: true,
       name: classInfo.name,
@@ -640,7 +564,6 @@ const pullAllClasses = async (outputDir) => {
     const certificateData = await configManager.getAuthInfo() || {};
     
     // 获取类列表 - 使用syncFunction来批量获取类列表
-    console.log('正在获取类列表...');
     const pageData = {
       pageNumber: 1,
       pageSize: 2000,
@@ -653,9 +576,6 @@ const pullAllClasses = async (outputDir) => {
       throw new Error(`获取类列表失败: ${response.Result.FailureMessage || '未知错误'}`);
     }
     
-    // 将响应数据写入调试日志文件
-    await writeDebugLog(response, 'classes-response');
-    
     // 从Value.list或Value.items或直接从Value获取数据，兼容多种格式
     let classes = [];
     if (response && response.Value) {
@@ -667,12 +587,10 @@ const pullAllClasses = async (outputDir) => {
         classes = response.Value.items;
       }
     }
-    console.log(`获取到${classes.length}个类`);
     
     const results = [];
     
     if (!Array.isArray(classes) || classes.length === 0) {
-      console.log('没有找到类，跳过拉取');
       return results;
     }
 
@@ -684,12 +602,9 @@ const pullAllClasses = async (outputDir) => {
           throw new Error(`类信息不完整: ${JSON.stringify(cls)}`);
         }
         
-        console.log(`正在拉取: ${cls.name}`);
         const result = await pullSingleClass(cls, outputDir);
         results.push(result);
-        console.log(`✓ 成功拉取: ${cls.name}`);
       } catch (error) {
-        console.error(error.message);
         results.push({
           success: false,
           name: cls.funcName || '未知类',
@@ -718,46 +633,31 @@ const pullAllResources = async (outputDir) => {
   const pwcDir = path.join(fxAppDir, 'main', 'PWC');
   const aplDir = path.join(fxAppDir, 'main', 'APL');
   
-  console.log(`项目根目录: ${projectRoot}`);
-  console.log(`fx-app目录: ${fxAppDir}`);
-  
   // 拉取组件
   try {
-    console.log('开始拉取所有组件...');
-    console.log(`组件保存目录: ${path.join(pwcDir, 'components')}`);
     results.components = await pullAllComponents(path.join(pwcDir, 'components'), 'component');
   } catch (error) {
-    console.error(`组件拉取失败: ${error.message}`);
     results.components = [];
   }
   
   // 拉取插件
   try {
-    console.log('开始拉取所有插件...');
-    console.log(`插件保存目录: ${path.join(pwcDir, 'plugins')}`);
     results.plugins = await pullAllComponents(path.join(pwcDir, 'plugins'), 'plugin');
   } catch (error) {
-    console.error(`插件拉取失败: ${error.message}`);
     results.plugins = [];
   }
   
   // 拉取函数
   try {
-    console.log('开始拉取所有函数...');
-    console.log(`函数保存目录: ${path.join(aplDir, 'functions')}`);
     results.functions = await pullAllFunctions(path.join(aplDir, 'functions'));
   } catch (error) {
-    console.error(`函数拉取失败: ${error.message}`);
     results.functions = [];
   }
   
   // 拉取类
   try {
-    console.log('开始拉取所有类...');
-    console.log(`类保存目录: ${path.join(aplDir, 'classes')}`);
     results.classes = await pullAllClasses(path.join(aplDir, 'classes'));
   } catch (error) {
-    console.error(`类拉取失败: ${error.message}`);
     results.classes = [];
   }
   

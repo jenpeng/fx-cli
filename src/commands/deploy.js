@@ -102,7 +102,7 @@ const execute = async (name, options = {}) => {
 const checkAuth = async () => {
   const userInfo = configManager.get('userInfo');
   if (!userInfo) {
-    throw new Error('请先登录: fx-cli auth');
+    throw new Error('请先登录: fx-cli login');
   }
 };
 

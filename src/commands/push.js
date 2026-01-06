@@ -7,7 +7,8 @@ const path = require('path');
 const fs = require('fs-extra');
 const chalk = require('chalk'); // 保留但不使用彩色输出
 const { getConfigManager } = require('../core/ConfigManager');
-const { pushByType, pushClassService } = require('../services/pushService');
+const { pushByType } = require('../services/pushService');
+const progressManager = require('../utils/progressManager');
 
 // 配置管理器实例
 const configManager = getConfigManager();
@@ -17,10 +18,10 @@ const projectRoot = configManager.getSync('project.rootDir') || process.cwd();
 /**
  * 日志输出函数
  */
-const logInfo = (message) => console.log(`[INFO] ${message}`);
-const logSuccess = (message) => console.log(`[SUCCESS] ${message}`);
-const logWarning = (message) => console.log(`[WARNING] ${message}`);
-const logError = (message) => console.log(`[ERROR] ${message}`);
+const logInfo = (message) => console.log('[信息] ' + message);
+const logSuccess = (message) => console.log('[成功] ' + message);
+const logWarning = (message) => console.log('[警告] ' + message);
+const logError = (message) => console.log('[错误] ' + message);
 
 /**
  * 执行推送命令
@@ -40,7 +41,6 @@ const execute = async (name, options) => {
   let type = options.type;
   let singleFilePath = options.file;
   let pathParam = options.path; // 新增-p参数支持
-  // let isNewComponent = options.new; // 移除--new参数支持
   // let isNewFunction = options.new; // 移除--new参数支持
   
   // 验证类型或自动检测
@@ -203,70 +203,161 @@ const execute = async (name, options) => {
         if (path.isAbsolute(name)) {
           targetPath = name;
         } else {
-          // 如果不是绝对路径，先检查当前目录下是否存在
-          const currentDirPath = path.join(process.cwd(), name);
-          if (await fs.pathExists(currentDirPath)) {
-            targetPath = currentDirPath;
+          // 否则根据类型在fx-app下的正确目录中查找同名目录
+          let typeDir;
+          if (type === 'component' || type === 'plugin') {
+            typeDir = path.join(projectRoot, 'fx-app', 'main', 'PWC', type);
+          } else if (type === 'function' || type === 'class') {
+            typeDir = path.join(projectRoot, 'fx-app', 'main', 'APL', type + (type === 'class' ? 'es' : 's'));
           } else {
-            // 如果当前目录下不存在，再检查类型目录下的路径
-            let typeDir;
-            if (type === 'component' || type === 'plugin') {
-              typeDir = path.join(projectRoot, 'fx-app', 'main', 'PWC', type);
-            } else if (type === 'function' || type === 'class') {
-              typeDir = path.join(projectRoot, 'fx-app', 'main', 'APL', type + (type === 'class' ? 'es' : 's'));
-            } else {
-              typeDir = path.join(projectRoot, 'fx-app', type);
-            }
-            targetPath = path.join(typeDir, name);
+            typeDir = path.join(projectRoot, 'fx-app', type);
+          }
+          const typeDirTargetPath = path.join(typeDir, name);
+          
+          // 检查类型目录下的路径是否存在
+          if (await fs.pathExists(typeDirTargetPath)) {
+            targetPath = typeDirTargetPath;
+          } else {
+            // 如果不存在，使用当前目录下的同名目录（保持向后兼容）
+            targetPath = path.join(process.cwd(), name);
           }
         }
         
-        // 验证目录是否存在
+        // 检查目录是否存在
         if (!await fs.pathExists(targetPath)) {
-          throw new Error(`目录不存在: ${targetPath}`);
+          throw new Error(`路径不存在: ${targetPath}`);
         }
       }
     }
   } else {
-    // 如果没有提供name参数，使用默认目录
+    // 如果没有指定路径，根据类型自动选择默认目录
     if (type === 'component' || type === 'plugin') {
+      // 组件和插件目录是复数形式
       targetPath = path.join(projectRoot, 'fx-app', 'main', 'PWC', type + 's');
-    } else if (type === 'function' || type === 'class') {
-      targetPath = path.join(projectRoot, 'fx-app', 'main', 'APL', type + (type === 'class' ? 'es' : 's'));
+    } else if (type === 'function') {
+      targetPath = path.join(projectRoot, 'fx-app', 'main', 'APL', 'functions');
+    } else if (type === 'class') {
+      targetPath = path.join(projectRoot, 'fx-app', 'main', 'APL', 'classes');
     } else {
-      targetPath = path.join(projectRoot, 'fx-app', type);
+      // 如果类型未知，使用当前目录作为后备
+      targetPath = process.cwd();
     }
     
-    // 验证目录是否存在
+    // 检查目录是否存在，如果不存在则使用当前目录
     if (!await fs.pathExists(targetPath)) {
-      throw new Error(`目录不存在: ${targetPath}`);
+      logWarning(`默认${type}目录不存在: ${targetPath}，使用当前目录`);
+      targetPath = process.cwd();
     }
   }
   
-  // 如果指定了-p参数，则使用指定的路径
+  // 如果提供了-p选项，处理单个文件名（支持component、plugin、function和class）
   if (pathParam) {
-    // 检查pathParam是否是一个文件
-    const stats = await fs.stat(pathParam).catch(() => null);
-    if (stats && stats.isFile()) {
-      // 如果是文件，则使用文件所在目录作为targetPath
-      targetPath = path.dirname(pathParam);
-      resolvedSingleFilePath = pathParam;
-    } else {
-      // 如果是目录，直接使用
-      targetPath = pathParam;
+    // 构建完整的文件路径
+    let fileName;
+    let typeDir;
+    
+    if (type === 'component' || type === 'plugin') {
+      // 对于组件和插件，-p参数指定的是组件/插件名称，不是单个文件
+      // 查找对应的组件/插件目录
+      // 注意：组件目录名是复数形式（components/plugins）
+      const typeDirName = type === 'component' ? 'components' : 'plugins';
+      typeDir = path.join(projectRoot, 'fx-app', 'main', 'PWC', typeDirName);
+      const componentPath = path.join(typeDir, pathParam);
+      
+      // 检查组件/插件目录是否存在
+      if (await fs.pathExists(componentPath)) {
+        targetPath = componentPath;
+        logInfo(`使用-p参数指定${type}: ${pathParam}`);
+      } else {
+        throw new Error(`${type}不存在: ${componentPath}`);
+      }
+    } else if (type === 'function' || type === 'class') {
+      // 对于函数和类，-p参数指定的是单个文件名
+      fileName = pathParam.endsWith('.groovy') ? pathParam : `${pathParam}.groovy`;
+      
+      if (type === 'function') {
+        typeDir = path.join(projectRoot, 'fx-app', 'main', 'APL', 'functions');
+      } else if (type === 'class') {
+        typeDir = path.join(projectRoot, 'fx-app', 'main', 'APL', 'classes');
+      }
+      
+      const fullPath = path.join(typeDir, fileName);
+      
+      // 检查文件是否存在
+      if (!await fs.pathExists(fullPath)) {
+        throw new Error(`文件不存在: ${fullPath}`);
+      }
+      
+      resolvedSingleFilePath = fullPath;
+      targetPath = typeDir;
+      logInfo(`使用-p参数指定文件: ${fileName}`);
     }
   }
   
-  // 如果指定了-f参数，则使用指定的文件
+  // 如果提供了-f选项，验证其存在性
   if (singleFilePath) {
-    // 验证文件是否存在
-    if (!await fs.pathExists(singleFilePath)) {
-      throw new Error(`文件不存在: ${singleFilePath}`);
+    resolvedSingleFilePath = singleFilePath;
+    
+    // 检查是否为绝对路径
+    if (!path.isAbsolute(singleFilePath)) {
+      // 如果不是绝对路径，先根据类型在fx-app下的正确目录中查找文件
+      let typeDir;
+      if (type === 'component' || type === 'plugin') {
+        // 注意：组件目录名是复数形式（components/plugins）
+        const typeDirName = type === 'component' ? 'components' : 'plugins';
+        typeDir = path.join(projectRoot, 'fx-app', 'main', 'PWC', typeDirName);
+      } else if (type === 'function' || type === 'class') {
+        typeDir = path.join(projectRoot, 'fx-app', 'main', 'APL', type + (type === 'class' ? 'es' : 's'));
+      } else {
+        typeDir = path.join(projectRoot, 'fx-app', type);
+      }
+      const typeDirFilePath = path.join(typeDir, singleFilePath);
+      
+      if (await fs.pathExists(typeDirFilePath)) {
+        resolvedSingleFilePath = typeDirFilePath;
+      } else {
+        // 如果类型目录下不存在，检查当前目录下是否存在
+        const currentDirFilePath = path.join(process.cwd(), singleFilePath);
+        if (await fs.pathExists(currentDirFilePath)) {
+          resolvedSingleFilePath = currentDirFilePath;
+        }
+      }
     }
     
-    // 设置targetPath为文件所在目录
-    targetPath = path.dirname(singleFilePath);
-    resolvedSingleFilePath = singleFilePath;
+    // 验证最终路径是否存在
+    if (!await fs.pathExists(resolvedSingleFilePath)) {
+      throw new Error(`单个文件不存在: ${resolvedSingleFilePath}`);
+    }
+    
+    // 对于组件和插件，如果使用-f参数指定路径，需要更新targetPath为组件目录
+    if (type === 'component' || type === 'plugin') {
+      // 检查是否是组件目录
+      const stats = await fs.stat(resolvedSingleFilePath);
+      if (stats.isDirectory()) {
+        // 如果是目录，直接使用该目录作为targetPath
+        targetPath = resolvedSingleFilePath;
+        // 对于组件目录，不需要设置resolvedSingleFilePath，因为我们要推送整个组件
+        resolvedSingleFilePath = null;
+      } else {
+        // 如果是文件，需要获取其所在的组件目录
+        let currentPath = resolvedSingleFilePath;
+        while (currentPath !== path.dirname(currentPath)) {
+          // 检查当前目录是否包含component.xml或plugin.xml
+          const xmlFile = type === 'component' ? 'component.xml' : 'plugin.xml';
+          const xmlPath = path.join(currentPath, xmlFile);
+          if (await fs.pathExists(xmlPath)) {
+            targetPath = currentPath;
+            break;
+          }
+          currentPath = path.dirname(currentPath);
+        }
+        
+        // 如果没有找到包含XML文件的目录，使用文件所在目录
+        if (targetPath === projectRoot) {
+          targetPath = path.dirname(resolvedSingleFilePath);
+        }
+      }
+    }
   }
   
   // 如果未提供单个文件，检查是否是目录
@@ -275,87 +366,10 @@ const execute = async (name, options) => {
     if (!stats.isDirectory()) {
       throw new Error(`路径不是目录: ${targetPath}`);
     }
-    
-    // 如果是components或plugins目录，且没有指定具体的组件/插件，则扫描所有子目录
-    if ((type === 'component' || type === 'plugin') && !singleFilePath) {
-      // 检查是否是components或plugins目录，或者是指定的组件/插件目录
-      const isComponentsOrPluginsDir = path.basename(targetPath) === 'components' || path.basename(targetPath) === 'plugins';
-      const hasComponentXml = await fs.pathExists(path.join(targetPath, type === 'component' ? 'component.xml' : 'plugin.xml'));
-      
-      // 如果是components/plugins目录，或者目录中没有对应的XML文件，则扫描子目录
-      if (isComponentsOrPluginsDir || !hasComponentXml) {
-        const xmlFile = type === 'component' ? 'component.xml' : 'plugin.xml';
-        const subdirs = await fs.readdir(targetPath);
-      
-      // 过滤出包含对应XML文件的子目录
-      const componentDirs = [];
-      for (const subdir of subdirs) {
-        const subdirPath = path.join(targetPath, subdir);
-        const subdirStat = await fs.stat(subdirPath);
-        if (subdirStat.isDirectory()) {
-          const xmlPath = path.join(subdirPath, xmlFile);
-          if (await fs.pathExists(xmlPath)) {
-            componentDirs.push(subdirPath);
-          }
-        }
-      }
-      
-      if (componentDirs.length === 0) {
-        throw new Error(`在目录 ${targetPath} 中未找到任何有效的${type}（包含${xmlFile}）`);
-      }
-      
-      logInfo(`找到 ${componentDirs.length} 个${type}，准备逐个推送...`);
-      
-      // 逐个推送组件/插件
-      const results = [];
-      let successCount = 0;
-      let failCount = 0;
-      
-      for (const componentDir of componentDirs) {
-        try {
-          logInfo(`正在推送${type}: ${path.basename(componentDir)}`);
-          // 移除isNewComponent参数，实现智能判断
-          const result = await pushByType(componentDir, type, null);
-          
-          if (result.success) {
-            logSuccess(`${type} ${path.basename(componentDir)} 推送成功`);
-            successCount++;
-            results.push({ name: path.basename(componentDir), success: true, message: result.message });
-          } else {
-            logError(`${type} ${path.basename(componentDir)} 推送失败: ${result.message}`);
-            failCount++;
-            results.push({ name: path.basename(componentDir), success: false, message: result.message });
-          }
-        } catch (error) {
-          logError(`${type} ${path.basename(componentDir)} 推送失败: ${error.message}`);
-          failCount++;
-          results.push({ name: path.basename(componentDir), success: false, message: error.message });
-        }
-      }
-      
-      // 输出汇总结果
-      logInfo(`推送完成！成功: ${successCount}，失败: ${failCount}`);
-      
-      // 如果有失败的组件，打印失败组件名称
-      if (failCount > 0) {
-        const failedComponents = results.filter(r => !r.success).map(r => r.name);
-        logError(`失败的${type}名称: ${failedComponents.join(', ')}`);
-      }
-      
-      // 返回汇总结果
-      return {
-        success: failCount === 0,
-        message: `推送完成！成功: ${successCount}，失败: ${failCount}`,
-        results
-      };
-      }
-    }
   }
   
   // 显示开始消息
   const pushTarget = resolvedSingleFilePath ? `${path.basename(resolvedSingleFilePath)}` : `${path.basename(targetPath)}`;
-  const pushMode = resolvedSingleFilePath ? `单个文件` : `整个${type}`;
-  logInfo(`开始推送 ${type} ${pushMode}，来源路径: ${targetPath}`);
   
   // 当推送单个class或function文件时，检查unchangeableJson.json
   let unchangeableJsonPath = path.join(projectRoot, 'unchangeableJson.json');
@@ -373,7 +387,6 @@ const execute = async (name, options) => {
       const fileName = path.basename(resolvedSingleFilePath);
       const fileExtension = path.extname(fileName);
       // 构建key，格式为 "type:API_NAME"
-      // 从文件名中提取API名称（支持带或不带.groovy扩展名）
       const apiName = fileName.replace(fileExtension, '');
       const key = `${type}:${apiName}`;
       
@@ -384,46 +397,73 @@ const execute = async (name, options) => {
       }
       
       fileToCheck = key;
-      // logInfo(`文件 ${fileName} 在unchangeableJson.json中有记录，可以推送`);
     } else {
       throw new Error(`unchangeableJson.json文件不存在，无法推送单个${type}文件`);
     }
   }
   
   try {
-    logInfo(`正在推送 ${type} ${pushMode}...`);
-    logInfo(`targetPath: ${targetPath}`);
-    logInfo(`singleFilePath: ${resolvedSingleFilePath}`);
-    logInfo(`fileToCheck: ${fileToCheck}`);
-    // 执行推送，传入单个文件路径（如果有）
-    // 移除isNewComponent参数，实现智能判断
-    const result = await pushByType(targetPath, type, resolvedSingleFilePath);
+    // 启动spinner
+    progressManager.startSpinner(`正在推送 ${type}: ${pushTarget}...`);
     
-    // 检查推送结果是否成功
-    if (!result.success) {
-      throw new Error(result.message || '推送失败');
-    }
-    
-    // 如果是单个class或function文件推送成功，更新unchangeableJson.json
-    if ((singleFilePath || pathParam) && (type === 'class' || type === 'function') && resolvedSingleFilePath) {
-      if (fileToCheck && unchangeableJsonData) {
-        // 更新updateTime为当前时间戳
-        unchangeableJsonData[fileToCheck].updateTime = Date.now();
-        
-        // 写回unchangeableJson.json
-        await fs.writeFile(unchangeableJsonPath, JSON.stringify(unchangeableJsonData, null, 2), 'utf8');
-        logInfo(`已更新unchangeableJson.json中${fileToCheck}的记录`);
+    let result;
+    if (resolvedSingleFilePath) {
+      // 推送单个文件
+      result = await pushByType(targetPath, type, resolvedSingleFilePath);
+      
+      // 停止spinner
+      progressManager.stopAllSpinners();
+      
+      // 检查推送结果是否成功
+      if (!result.success) {
+        logError(`推送失败: ${result.message || '未知错误'}`);
+        throw new Error(result.message || '推送失败');
       }
+      
+      // 如果是单个class或function文件推送成功，更新unchangeableJson.json
+      if ((singleFilePath || pathParam) && (type === 'class' || type === 'function')) {
+        if (fileToCheck && unchangeableJsonData) {
+          // 更新updateTime为当前时间戳
+          unchangeableJsonData[fileToCheck].updateTime = Date.now();
+          
+          // 写回unchangeableJson.json
+          await fs.writeFile(unchangeableJsonPath, JSON.stringify(unchangeableJsonData, null, 2), 'utf8');
+        }
+      }
+      
+      logSuccess(`推送成功！${result.message || ''}`);
+    } else {
+      // 推送目录，调用pushByTypeDirectory进行批量推送和统计
+      const stats = await pushByTypeDirectory(targetPath, type);
+      
+      // 停止spinner
+      progressManager.stopAllSpinners();
+      
+      // 汇总结果
+      const totalSuccess = stats.success;
+      const totalFailed = stats.failed;
+      
+      logSuccess(`${type}推送结果: 成功 ${totalSuccess}/${totalSuccess + totalFailed}`);
+      
+      // 输出失败的项目
+      if (totalFailed > 0) {
+        logInfo('失败列表:');
+        stats.items.filter(item => !item.success).forEach(item => {
+          logError(`  - ${item.name}: ${item.message}`);
+        });
+      }
+      
+      result = {
+        success: true,
+        message: `${type}目录推送完成，成功: ${totalSuccess}，失败: ${totalFailed}`
+      };
     }
-    
-    logSuccess(`推送成功！${result.message || ''}`);
     
     return result;
   } catch (error) {
-    logError(`推送失败: ${error.message}`);
-    logError(`错误类型: ${typeof error}`);
-    logError(`错误对象: ${JSON.stringify(error)}`);
-    logError(`错误堆栈: ${error.stack}`);
+    // 停止所有进度显示
+    progressManager.stopAll();
+    logError('推送失败: ' + error.message);
     throw error;
   }
 };
@@ -466,7 +506,14 @@ module.exports = {
       alias: 'p',
       description: '组件名称或单个文件名（可选，用于推送组件或单个文件）',
       required: false
-    }
+    },
+    {
+      name: 'all',
+      alias: 'a',
+      description: '推送所有组件、插件、函数和类',
+      required: false
+    },
+    // 移除--new选项
   ],
   execute
 };
@@ -487,6 +534,9 @@ const pushAll = async (options) => {
   };
   
   try {
+    // 启动全局进度条
+    progressManager.startSpinner('正在准备批量推送...');
+    
     // 1. 推送所有组件
     await pushAllByType('component', results);
     
@@ -494,10 +544,13 @@ const pushAll = async (options) => {
     await pushAllByType('plugin', results);
     
     // 3. 推送所有函数
-    await pushAllFunctions(results);
+    await pushAllByType('function', results);
     
     // 4. 推送所有类
     await pushAllByType('class', results);
+    
+    // 停止全局进度条
+    progressManager.stopAllSpinners();
     
     // 汇总结果
     const totalSuccess = results.components.success + results.plugins.success + 
@@ -505,18 +558,24 @@ const pushAll = async (options) => {
     const totalFailed = results.components.failed + results.plugins.failed + 
                        results.functions.failed + results.classes.failed;
     
-    logInfo(`批量推送完成！成功: ${totalSuccess}，失败: ${totalFailed}`);
+    logSuccess(`批量推送完成！成功: ${totalSuccess}，失败: ${totalFailed}`);
     
     // 输出各类别的详细结果
-    const componentFailedNames = results.components.items.filter(item => !item.success).map(item => item.name).join(', ');
-    const pluginFailedNames = results.plugins.items.filter(item => !item.success).map(item => item.name).join(', ');
-    const functionFailedNames = results.functions.items.filter(item => !item.success).map(item => item.name).join(', ');
-    const classFailedNames = results.classes.items.filter(item => !item.success).map(item => item.name).join(', ');
+    logInfo(`组件: 成功 ${results.components.success}，失败 ${results.components.failed}`);
+    logInfo(`插件: 成功 ${results.plugins.success}，失败 ${results.plugins.failed}`);
+    logInfo(`函数: 成功 ${results.functions.success}，失败 ${results.functions.failed}`);
+    logInfo(`类: 成功 ${results.classes.success}，失败 ${results.classes.failed}`);
     
-    logInfo(`组件: 成功 ${results.components.success}，失败 ${results.components.failed}${componentFailedNames ? ` (${componentFailedNames})` : ''}`);
-    logInfo(`插件: 成功 ${results.plugins.success}，失败 ${results.plugins.failed}${pluginFailedNames ? ` (${pluginFailedNames})` : ''}`);
-    logInfo(`函数: 成功 ${results.functions.success}，失败 ${results.functions.failed}${functionFailedNames ? ` (${functionFailedNames})` : ''}`);
-    logInfo(`类: 成功 ${results.classes.success}，失败 ${results.classes.failed}${classFailedNames ? ` (${classFailedNames})` : ''}`);
+    // 输出失败的项目
+    Object.entries(results).forEach(([type, stats]) => {
+      const failedItems = stats.items.filter(item => !item.success);
+      if (failedItems.length > 0) {
+        logInfo(`${type}失败列表:`);
+        failedItems.forEach(item => {
+          logError(`  - ${item.name}: ${item.message}`);
+        });
+      }
+    });
     
     return {
       success: totalFailed === 0,
@@ -524,6 +583,7 @@ const pushAll = async (options) => {
       results
     };
   } catch (error) {
+    progressManager.stopAll();
     logError(`批量推送过程中发生错误: ${error.message}`);
     throw error;
   }
@@ -531,7 +591,7 @@ const pushAll = async (options) => {
 
 /**
  * 推送指定类型的所有项目
- * @param {string} type - 类型：component/plugin/class
+ * @param {string} type - 类型：component/plugin/class/function
  * @param {Object} results - 结果对象
  */
 const pushAllByType = async (type, results) => {
@@ -541,6 +601,8 @@ const pushAllByType = async (type, results) => {
     // 确定目标路径
     if (type === 'component' || type === 'plugin') {
       targetPath = path.join(projectRoot, 'fx-app', 'main', 'PWC', type + 's');
+    } else if (type === 'function') {
+      targetPath = path.join(projectRoot, 'fx-app', 'main', 'APL', 'functions');
     } else if (type === 'class') {
       targetPath = path.join(projectRoot, 'fx-app', 'main', 'APL', 'classes');
     } else {
@@ -548,10 +610,32 @@ const pushAllByType = async (type, results) => {
       return;
     }
     
+    // 调用pushByTypeDirectory处理目录推送
+    await pushByTypeDirectory(targetPath, type, results);
+  } catch (error) {
+    logError(`推送${type}时发生错误: ${error.message}`);
+  }
+};
+
+/**
+ * 推送指定目录下的所有指定类型项目
+ * @param {string} targetPath - 目标目录路径
+ * @param {string} type - 类型：component/plugin/class/function
+ * @param {Object} results - 结果对象（可选，用于pushAllByType调用）
+ * @returns {Object|null} - 结果统计对象，如果传入了results则返回null
+ */
+const pushByTypeDirectory = async (targetPath, type, results = null) => {
+  // 如果没有传入results对象，创建一个新的
+  const localResults = results || {
+    success: 0,
+    failed: 0,
+    items: []
+  };
+  
+  try {
     // 检查目录是否存在
     if (!await fs.pathExists(targetPath)) {
-      logWarning(`目录不存在，跳过${type}: ${targetPath}`);
-      return;
+      return results ? null : localResults;
     }
     
     // 对于组件和插件，处理子目录
@@ -574,131 +658,137 @@ const pushAllByType = async (type, results) => {
       }
       
       if (validDirs.length === 0) {
-        logInfo(`未找到任何${type}，跳过`);
-        return;
+        return results ? null : localResults;
       }
       
-      logInfo(`找到 ${validDirs.length} 个${type}，准备逐个推送...`);
+      // 停止spinner，启动进度条
+      progressManager.stopAllSpinners();
+      // 启动进度条，显示总量
+      const progressBar = progressManager.startProgressBar(validDirs.length, `正在推送所有${type}资源...`);
       
       // 逐个推送
-      for (const dir of validDirs) {
+      for (let i = 0; i < validDirs.length; i++) {
+        const dir = validDirs[i];
+        const itemName = path.basename(dir);
+        
         try {
-          logInfo(`正在推送${type}: ${path.basename(dir)}`);
           const result = await pushByType(dir, type, null);
           
+          // 修复类名复数形式的问题
+          const resultKey = results ? (type === 'class' ? 'classes' : `${type}s`) : null;
+          
           if (result.success) {
-            logSuccess(`${type} ${path.basename(dir)} 推送成功`);
-            results[type + 's'].success++;
-            results[type + 's'].items.push({ name: path.basename(dir), success: true, message: result.message });
+            if (results) {
+              results[resultKey].success++;
+              results[resultKey].items.push({ name: itemName, success: true, message: result.message });
+            } else {
+              localResults.success++;
+              localResults.items.push({ name: itemName, success: true, message: result.message });
+            }
           } else {
-            logError(`${type} ${path.basename(dir)} 推送失败: ${result.message}`);
-            results[type + 's'].failed++;
-            results[type + 's'].items.push({ name: path.basename(dir), success: false, message: result.message });
+            if (results) {
+              results[resultKey].failed++;
+              results[resultKey].items.push({ name: itemName, success: false, message: result.message });
+            } else {
+              localResults.failed++;
+              localResults.items.push({ name: itemName, success: false, message: result.message });
+            }
           }
         } catch (error) {
-          logError(`${type} ${path.basename(dir)} 推送失败: ${error.message}`);
-          results[type + 's'].failed++;
-          results[type + 's'].items.push({ name: path.basename(dir), success: false, message: error.message });
+          const resultKey = results ? (type === 'class' ? 'classes' : `${type}s`) : null;
+          if (results) {
+            results[resultKey].failed++;
+            results[resultKey].items.push({ name: itemName, success: false, message: error.message });
+          } else {
+            localResults.failed++;
+            localResults.items.push({ name: itemName, success: false, message: error.message });
+          }
+        } finally {
+          // 更新进度条（无论成功失败都更新）
+          progressManager.updateProgressBar(i + 1, `${i+1}/${validDirs.length} 正在推送${type}: ${itemName}`);
         }
       }
+      
+      // 停止进度条
+      progressManager.stopAllProgressBars();
     } 
-    // 对于类，处理单个文件
-    else if (type === 'class') {
+    // 对于函数和类，处理单个文件
+    else if (type === 'function' || type === 'class') {
       // 获取所有.groovy文件
       const files = await fs.readdir(targetPath);
       const validFiles = files.filter(file => path.extname(file).toLowerCase() === '.groovy');
       
       if (validFiles.length === 0) {
-        logInfo(`未找到任何${type}，跳过`);
-        return;
+        return results ? null : localResults;
       }
       
-      logInfo(`找到 ${validFiles.length} 个${type}，准备逐个推送...`);
+      // 停止spinner，启动进度条
+      progressManager.stopAllSpinners();
+      // 启动进度条，显示总量
+      const progressBar = progressManager.startProgressBar(validFiles.length, `正在推送所有${type}资源...`);
       
       // 逐个推送
-      for (const file of validFiles) {
+      for (let i = 0; i < validFiles.length; i++) {
+        const file = validFiles[i];
+        
         try {
           const filePath = path.join(targetPath, file);
-          logInfo(`正在推送${type}: ${file}`);
           
-          // 直接调用pushClassService.pushClass，绕过pushByType函数
-          const classResult = await pushClassService.pushClass(targetPath, filePath);
+          // 执行推送，传入单个文件路径
+          const result = await pushByType(targetPath, type, filePath);
           
-          // 检查返回结果格式
-          if (classResult && classResult.results && Array.isArray(classResult.results)) {
-            // 如果是数组，取第一个结果（因为我们只推送了一个文件）
-            const result = classResult.results[0];
-            if (result && result.success) {
-              logSuccess(`${type} ${file} 推送成功`);
-              results.classes.success++;
-              results.classes.items.push({ name: file, success: true, message: result.message });
+          // 修复类名复数形式的问题
+          const resultKey = results ? (type === 'class' ? 'classes' : `${type}s`) : null;
+          
+          if (result.success) {
+            if (results) {
+              results[resultKey].success++;
+              results[resultKey].items.push({ name: file, success: true, message: result.message });
             } else {
-              logError(`${type} ${file} 推送失败: ${result ? result.message : '未知错误'}`);
-              results.classes.failed++;
-              results.classes.items.push({ name: file, success: false, message: result ? result.message : '未知错误' });
-            }
-          } else if (classResult && classResult.success !== undefined) {
-            // 如果是单个结果对象
-            if (classResult.success) {
-              logSuccess(`${type} ${file} 推送成功`);
-              results.classes.success++;
-              results.classes.items.push({ name: file, success: true, message: classResult.message });
-            } else {
-              logError(`${type} ${file} 推送失败: ${classResult.message}`);
-              results.classes.failed++;
-              results.classes.items.push({ name: file, success: false, message: classResult.message });
+              localResults.success++;
+              localResults.items.push({ name: file, success: true, message: result.message });
             }
           } else {
-            // 其他情况视为失败
-            logError(`${type} ${file} 推送失败: 返回结果格式不正确`);
-            results.classes.failed++;
-            results.classes.items.push({ name: file, success: false, message: '返回结果格式不正确' });
+            if (results) {
+              results[resultKey].failed++;
+              results[resultKey].items.push({ name: file, success: false, message: result.message });
+            } else {
+              localResults.failed++;
+              localResults.items.push({ name: file, success: false, message: result.message });
+            }
           }
         } catch (error) {
-          logError(`${type} ${file} 推送失败: ${error.message}`);
-          results.classes.failed++;
-          results.classes.items.push({ name: file, success: false, message: error.message });
+          const resultKey = results ? (type === 'class' ? 'classes' : `${type}s`) : null;
+          if (results) {
+            results[resultKey].failed++;
+            results[resultKey].items.push({ name: file, success: false, message: error.message });
+          } else {
+            localResults.failed++;
+            localResults.items.push({ name: file, success: false, message: error.message });
+          }
+        } finally {
+          // 更新进度条（无论成功失败都更新）
+          progressManager.updateProgressBar(i + 1, `${i+1}/${validFiles.length} 正在推送${type}: ${file}`);
         }
       }
+      
+      // 停止进度条
+      progressManager.stopAllProgressBars();
+    }
+    
+    // 如果没有传入results对象，返回localResults
+    if (!results) {
+      return localResults;
     }
   } catch (error) {
+    // 停止进度条
+    progressManager.stopAllProgressBars();
     logError(`推送${type}时发生错误: ${error.message}`);
-  }
-};
-
-/**
- * 推送所有函数
- * @param {Object} results - 结果对象
- */
-const pushAllFunctions = async (results) => {
-  try {
-    const functionsDir = path.join(projectRoot, 'fx-app', 'main', 'APL', 'functions');
-    
-    // 检查目录是否存在
-    if (!await fs.pathExists(functionsDir)) {
-      logWarning(`函数目录不存在，跳过: ${functionsDir}`);
-      return;
+    // 如果没有传入results对象，返回localResults
+    if (!results) {
+      return localResults;
     }
-    
-    logInfo(`开始批量推送函数...`);
-    
-    // 使用pushFunctionService中的pushAllFunctions方法
-    const { pushAllFunctions } = require('../services/pushFunctionService');
-    const functionResults = await pushAllFunctions(functionsDir);
-    
-    // 更新结果
-    if (functionResults.results) {
-      for (const item of functionResults.results) {
-        if (item.success) {
-          results.functions.success++;
-          results.functions.items.push({ name: item.name, success: true, message: item.message });
-        } else {
-          results.functions.failed++;
-          results.functions.items.push({ name: item.name, success: false, message: item.message });
-        }
-      }
-    }
-  } catch (error) {
-    logError(`推送函数时发生错误: ${error.message}`);
   }
+  
+  return null;
 };

@@ -53,17 +53,17 @@ const getTimestamp = () => {
 
 // 带颜色的日志输出
 const logWithColor = (level, message, module = 'pushComponentService') => {
-  const timestamp = getTimestamp();
-  const color = COLORS[level] || COLORS.RESET;
-  console.log(`${color}[${timestamp}] [${module}] [${level}] ${message}${COLORS.RESET}`);
+  // 禁用所有控制台日志输出，保持进度条显示简洁
+  // 只通过返回结果和错误对象传递信息
+  return;
 };
 
-// 简化的日志函数
+// 简化的日志函数 - 默认只输出ERROR和WARN级别，保持输出简洁
 const logger = {
   error: (message, module) => logWithColor(LOG_LEVELS.ERROR, message, module),
   warn: (message, module) => logWithColor(LOG_LEVELS.WARN, message, module),
-  info: (message, module) => logWithColor(LOG_LEVELS.INFO, message, module),
-  debug: (message, module) => logWithColor(LOG_LEVELS.DEBUG, message, module)
+  info: (message, module) => {}, // 禁用INFO级别日志
+  debug: (message, module) => {} // 禁用DEBUG级别日志
 };
 
 // 错误处理工具

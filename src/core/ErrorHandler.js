@@ -150,7 +150,7 @@ class ErrorHandler {
         
         // 尝试从响应中提取错误信息
         if (response.data && typeof response.data === 'object') {
-          message = response.data.message || (response.data?.error ? String(response.data.error) : message);
+          message = response.data.message || response.data.error || message;
           metadata = response.data.metadata || {};
         } else if (response.data) {
           message = String(response.data);

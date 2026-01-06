@@ -180,12 +180,12 @@ const logWithColor = (level, message, module = 'pushService') => {
   console.log(`${color}[${timestamp}] [${module}] [${level}] ${message}${COLORS.RESET}`);
 };
 
-// 简化的日志函数
+// 简化的日志函数 - 默认只输出ERROR和WARN级别，保持输出简洁
 const logger = {
   error: (message, module) => logWithColor(LOG_LEVELS.ERROR, message, module),
   warn: (message, module) => logWithColor(LOG_LEVELS.WARN, message, module),
-  info: (message, module) => logWithColor(LOG_LEVELS.INFO, message, module),
-  debug: (message, module) => logWithColor(LOG_LEVELS.DEBUG, message, module)
+  info: (message, module) => {}, // 禁用INFO级别日志
+  debug: (message, module) => {} // 禁用DEBUG级别日志
 };
 
 // 导入ConfigManager并初始化
@@ -368,9 +368,10 @@ const pushByType = async (targetPath, type, singleFilePath = null) => {
     } else if (type === 'plugin') {
       // 修复参数传递问题，确保type参数正确传递
       return await pushPluginService.pushPlugin(targetPath, type, singleFilePath);
-    } else if (type === 'class' || type === 'function') {
-      // 修复参数传递问题，正确传递classPath和singleFilePath
+    } else if (type === 'class') {
       return await pushClassService.pushClass(targetPath, singleFilePath);
+    } else if (type === 'function') {
+      return await pushFunctionService.pushFunction(targetPath, singleFilePath);
     } else {
       throw new Error(`不支持的类型: ${type}`);
     }

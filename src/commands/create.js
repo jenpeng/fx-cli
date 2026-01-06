@@ -234,8 +234,8 @@ async function createComponent(options) {
         await fs.copy(xmlPath, path.join(componentDir, 'component.xml'));
     }
     
-    logger.info(`已创建组件: ${name} (${type})`);
-    logger.info(`组件路径: ${componentDir}`);
+    console.log(`已创建组件: ${name} (${type})`);
+    console.log(`组件路径: ${componentDir}`);
     
     return componentDir;
 }
@@ -276,8 +276,8 @@ async function createPlugin(options) {
         await fs.copy(xmlPath, path.join(pluginDir, 'plugin.xml'));
     }
     
-    logger.info(`已创建插件: ${name} (${type})`);
-    logger.info(`插件路径: ${pluginDir}`);
+    console.log(`已创建插件: ${name} (${type})`);
+    console.log(`插件路径: ${pluginDir}`);
     
     return pluginDir;
 }
@@ -304,8 +304,8 @@ async function createFunction(options) {
     // 写入替换后的内容到目标文件
     fs.writeFileSync(groovyPath, functionContent, 'utf8');
     
-    logger.info(`已创建函数: ${name}`);
-    logger.info(`函数文件: ${groovyPath}`);
+    console.log(`已创建函数: ${name}`);
+    console.log(`函数文件: ${groovyPath}`);
     
     return { groovyPath };
 }
@@ -331,8 +331,8 @@ async function createClass(options) {
     // 写入替换后的内容到目标文件
     fs.writeFileSync(groovyPath, classContent, 'utf8');
     
-    logger.info(`已创建类: ${name}`);
-    logger.info(`类文件: ${groovyPath}`);
+    console.log(`已创建类: ${name}`);
+    console.log(`类文件: ${groovyPath}`);
     
     return { groovyPath };
 }
@@ -352,27 +352,15 @@ async function updateUnchangeableJson(projectRoot, type, info) {
         const keyName = apiName.replace(/__c$/, '');
         const key = `${type}:${keyName}`;
         
-        // 读取实际的文件内容
-        let content = '';
-        if (type === 'function' || type === 'class') {
-            const fileName = keyName;
-            const fileType = type === 'function' ? 'functions' : 'classes';
-            const filePath = path.join(projectRoot, 'fx-app', 'main', 'APL', fileType, `${fileName}.groovy`);
-            if (fs.existsSync(filePath)) {
-                content = fs.readFileSync(filePath, 'utf8');
-            }
-        }
-        
         // 根据资源类型构建不同的记录结构
         const baseRecord = {
             apiName, // apiName字段保持包含__c后缀
             name: info.name,
             updateTime: new Date().getTime(),
-            content: content,
-            bindingObjectApiName: info.bindingObjectApiName || (type === 'class' ? 'NONE' : ''),
+            content: '',
+            bindingObjectApiName: info.bindingObjectApiName || '',
             type,
-            tenantId: '67000207', // 使用与现有记录一致的租户ID
-            lang: 0 // 使用数字类型的lang，与现有记录一致
+            tenantId: ''
         };
         
         let resourceRecord;
@@ -385,6 +373,7 @@ async function updateUnchangeableJson(projectRoot, type, info) {
             // function和class需要lang、nameSpace和returnType字段
             resourceRecord = {
                 ...baseRecord,
+                lang: info.lang || 'groovy',
                 nameSpace: info.nameSpace || '',
                 returnType: info.returnType || (type === 'class' ? 'void' : '')
             };
@@ -395,9 +384,9 @@ async function updateUnchangeableJson(projectRoot, type, info) {
         
         // 写回文件
         fs.writeFileSync(unchangeableJsonPath, JSON.stringify(unchangeableJson, null, 2), 'utf8');
-        logger.info(`已更新unchangeableJson.json记录: ${key}`);
+        console.log(`已更新unchangeableJson.json记录: ${key}`);
     } catch (error) {
-        logger.warn(`更新unchangeableJson.json失败: ${error.message}`);
+        console.warn(`更新unchangeableJson.json失败: ${error.message}`);
     }
 }
 
@@ -409,7 +398,7 @@ async function execute(type, name, options) {
             return;
         }
         
-        logger.info(`开始创建${type}: ${name}`);
+        console.log(`开始创建${type}: ${name}`);
         
         // 验证类型
         const validTypes = ['component', 'plugin', 'function', 'class'];
@@ -554,10 +543,10 @@ async function execute(type, name, options) {
                 break;
         }
         
-        logger.info(`${type} 创建成功!`);
+        console.log(`${type} 创建成功!`);
         
     } catch (error) {
-        logger.error(`创建${type}失败:`, error.message || error);
+        console.error(`创建${type}失败:`, error.message || error);
         throw error;
     }
 }

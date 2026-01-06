@@ -528,6 +528,11 @@ class ConfigManagerClass {
         authInfo.token = this._decrypt(authInfo.encryptedToken);
       }
       
+      // 如果没有token但有certificate，将certificate的值赋给token
+      if (!authInfo.token && authInfo.certificate) {
+        authInfo.token = authInfo.certificate;
+      }
+      
       return authInfo;
     } catch (error) {
       logger.error('获取认证信息失败', error);
@@ -542,9 +547,7 @@ class ConfigManagerClass {
   async clearAuthInfo() {
     try {
       await this.initialize();
-      const credentials = await this._getCredentials();
-      delete credentials.authToken;
-      await fs.writeJSON(this.credentialsPath, credentials, { spaces: 2 });
+      // 直接重置auth配置，不再使用单独的credentials.json文件
       await this.set('auth', this.defaultConfig.auth);
     } catch (error) {
       logger.error('清除认证信息失败', error);
@@ -559,12 +562,38 @@ class ConfigManagerClass {
   async isAuthenticated() {
     try {
       const authInfo = await this.getAuthInfo();
-      return authInfo && authInfo.token;
+      // 检查是否有token或certificate
+      return authInfo && (authInfo.token || authInfo.certificate);
     } catch (error) {
       return false;
     }
   }
-  
+
+  /**
+   * 设置认证信息
+   * @param {Object} authData - 认证信息对象
+   * @param {string} authData.domain - 服务端域名
+   * @param {string} authData.certificate - 认证令牌
+   */
+  async setAuthInfo(authData) {
+    try {
+      await this.initialize();
+      
+      // 保存认证信息（不加密，直接存储明文）
+      await this.set('auth', {
+        domain: authData.domain,
+        certificate: authData.certificate, // 直接存储明文
+        lastAuth: new Date().toISOString()
+      });
+      
+      logger.debug('认证信息设置成功');
+      return true;
+    } catch (error) {
+      logger.error('设置认证信息失败', error);
+      throw new ConfigError(`无法设置认证信息: ${error.message}`);
+    }
+  }
+    
     // 不再使用单独的credentials.json文件，认证信息直接存储在config.json中
   
   /**

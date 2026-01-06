@@ -9,8 +9,21 @@ const { readFileContent } = require('../utils/fileUtils');
 const api = require('./api');
 const { getConfigManager } = require('../core/ConfigManager');
 const configManager = getConfigManager();
-// 导入logger实例
-const { logger } = require('../core/Logger');
+// 日志级别枚举
+const LOG_LEVELS = {
+  ERROR: 'ERROR',
+  WARN: 'WARN', 
+  INFO: 'INFO',
+  DEBUG: 'DEBUG'
+};
+
+// 简化的日志函数 - 禁用所有控制台日志输出，保持进度条显示简洁
+const logger = {
+  error: (message, module = 'pushClassService') => {}, // 禁用ERROR级别日志输出
+  warn: (message, module = 'pushClassService') => {}, // 禁用WARN级别日志输出
+  info: (message, module = 'pushClassService') => {}, // 禁用INFO级别日志输出
+  debug: (message, module = 'pushClassService') => {} // 禁用DEBUG级别日志输出
+};
 
 // 定义post函数，与pushService保持一致
 const post = api.post;
@@ -643,7 +656,312 @@ const pushNewClass = async (filePath) => {
   }
 };
 
+const pushClassFromContent = async (filePath, classContent, unchangeableJson = null, updateTime = 0) => {
+  try {
+    const className = path.basename(filePath, path.extname(filePath));
+    logger.info(`开始从内容推送类: ${className}, updateTime: ${updateTime}`);
+    
+    // 1. 准备数据 - 与extension的pushClass.js完全一致的格式
+    const classNameWithC = `${className}__c`;
+    
+    // 读取代码内容
+    let codeContent = classContent;
+    
+    // 关键修复：与extension的updateClassGroovy函数保持一致，将#demo#占位符替换为正确的类名
+    const actualClassName = classNameWithC.includes('__c') ? classNameWithC.match(/(\S*)__c/)[1] : classNameWithC;
+    if (codeContent.includes('#demo#')) {
+      codeContent = codeContent.replace(/#demo#/g, actualClassName);
+      logger.info(`已将类名占位符#demo#替换为${actualClassName}`);
+    }
+    
+    // 2. 从unchangeableJson.json获取类配置信息
+    let funcJson = {};
+    
+    // 如果传入了unchangeableJson参数（GitHub推送场景），直接使用
+    if (unchangeableJson !== null && typeof unchangeableJson === 'object') {
+      logger.info(`使用传入的unchangeableJson配置（GitHub推送场景）`);
+      
+      // 构建类的键名
+      const classKey = `class:${className}`;
+      
+      if (unchangeableJson[classKey]) {
+        funcJson = unchangeableJson[classKey];
+        logger.info(`从传入的unchangeableJson获取到类配置: ${JSON.stringify(funcJson, null, 2)}`);
+      }
+    } else {
+      // 否则从本地读取unchangeableJson.json（本地推送场景）
+      logger.info(`从本地读取unchangeableJson.json配置`);
+      try {
+        const projectRoot = configManager.getSync('project.rootDir') || process.cwd();
+        const unchangeableJsonPath = path.join(projectRoot, 'unchangeableJson.json');
+        
+        if (await fs.pathExists(unchangeableJsonPath)) {
+          const unchangeableJsonContent = await readFileContent(unchangeableJsonPath);
+          const localUnchangeableJson = JSON.parse(unchangeableJsonContent);
+          
+          // 构建类的键名
+          const classKey = `class:${className}`;
+          
+          if (localUnchangeableJson[classKey]) {
+            funcJson = localUnchangeableJson[classKey];
+            logger.info(`从本地unchangeableJson.json获取到类配置: ${JSON.stringify(funcJson, null, 2)}`);
+          }
+        }
+      } catch (error) {
+        logger.warning(`读取本地unchangeableJson.json失败: ${error.message}`);
+      }
+    }
+    
+    // 3. 准备新类的配置，优先使用从unchangeableJson.json读取的配置，否则使用默认值
+    const apiName = classNameWithC;
+    const bindingObjectApiName = funcJson.bindingObjectApiName || 'FHH_EMDHFUNC_CustomFunction__c';
+    const type = 'class';
+    const nameSpace = funcJson.nameSpace || '';
+    const returnType = funcJson.returnType || '';
+    const description = funcJson.description || '';
+    const lang = funcJson.lang || 0; // 0表示groovy
+    
+    // 4. 获取xml内容
+    const metaXmlPath = `${filePath.replace(path.extname(filePath), '')}.xml`;
+    let metaXml = '';
+    if (await fs.pathExists(metaXmlPath)) {
+      metaXml = await readFileContent(metaXmlPath);
+    }
+    
+    // 5. 构建数据对象
+    const commit = process.env.FX_COMMIT || 'fx-cli upload';
+    const data = {
+      type,
+      lang: Number(lang),
+      commit,
+      apiName,
+      nameSpace,
+      description,
+      name: className,
+      bindingObjectApiName,
+      metaXml,
+      content: codeContent,
+      updateTime // 使用传入的updateTime参数
+    };
+    
+    logger.info(`准备上传类的数据: ${JSON.stringify(data, null, 2)}`);
+    
+    // 6. 构建分析数据 - 模拟默认函数对象
+    const defaultFunction = {
+      api_name: apiName,
+      application: '',
+      binding_object_api_name: bindingObjectApiName,
+      body: codeContent,
+      commit_log: '',
+      data_source: '',
+      function_name: className,
+      is_active: false,
+      lang: Number(lang),
+      name_space: nameSpace,
+      parameters: [],
+      remark: description,
+      return_type: returnType,
+      status: 'not_used',
+      type: 'class',
+      version: 1
+    };
+    
+    // 7. 调用API进行函数分析
+    logger.info(`调用API进行函数分析 [${className}]`);
+    const analyzeResponse = await api.post('/FHH/EMDHFUNC/runtime/analyze', { function: defaultFunction });
+    
+    logger.info(`函数分析响应 [${className}]: ${JSON.stringify(analyzeResponse, null, 2)}`);
+    
+    // 7. 处理API响应错误
+    if (analyzeResponse.Result && analyzeResponse.Result.FailureMessage) {
+      logger.error(`函数分析失败 [${className}]: ${analyzeResponse.Result.FailureMessage}`);
+      return { success: false, message: `函数分析失败 [${className}]: ${analyzeResponse.Result.FailureMessage}`, name: className };
+    }
+    
+    // 9. 与extension完全一致：处理分析结果
+    const { violations = [], success = true } = analyzeResponse.Value || {};
+    const seriousError = violations.find((item) => item.priority >= 9);
+    
+    if (success === false && seriousError) {
+      // 有严重错误，需要确认是否继续
+      logger.error(`函数分析发现严重错误 [${className}]: ${seriousError?.message || '未知错误'}`);
+      return { success: false, message: `函数分析发现严重错误 [${className}]: ${seriousError?.message || '未知错误'}`, name: className };
+    } else if (success === false) {
+      // 有警告但不阻止上传
+      logger.warn(`函数分析发现警告 [${className}]，请检查代码质量`);
+    }
+    
+    // 10. 调用API进行编译检查
+    logger.info(`调用API进行编译检查 [${className}]`);
+    const compileResponse = await api.post('/FHH/EMDHFUNC/runtime/compileCheck', { function: defaultFunction });
+    
+    logger.info(`编译检查响应 [${className}]: ${JSON.stringify(compileResponse, null, 2)}`);
+    
+    // 11. 处理API响应错误
+    if (compileResponse.Result?.FailureMessage) {
+      logger.error(`编译检查失败 [${className}]: ${compileResponse.Result.FailureMessage}`);
+      return { success: false, message: `编译检查失败 [${className}]: ${compileResponse.Result.FailureMessage}`, name: className };
+    }
+    
+    // 12. 调用API上传类代码
+    logger.info(`调用API上传类代码 [${className}]，URL: /FHH/EMDHFUNC/biz/upload`);
+    let uploadResponse;
+    
+    try {
+      logger.info(`开始发送POST请求到: /FHH/EMDHFUNC/biz/upload`);
+      uploadResponse = await api.post('/FHH/EMDHFUNC/biz/upload', data);
+      logger.info(`成功收到API响应 [${className}]`);
+      logger.debug(`上传类完整响应 [${className}]: ${JSON.stringify(uploadResponse, null, 2)}`);
+      
+      // 处理API响应错误
+      if (uploadResponse.Result && uploadResponse.Result.StatusCode !== 0) {
+        const errorMessage = uploadResponse.Result.FailureMessage || '未知错误';
+        
+        // 如果是"已存在相同的apiName"错误，尝试使用正确的updateTime重试
+        if (errorMessage.includes('已存在相同的apiName') || errorMessage.includes('函数API名称已经存在')) {
+          logger.info(`检测到"已存在相同的apiName"错误，尝试从unchangeableJson获取正确的updateTime重试`);
+          
+          // 从unchangeableJson获取updateTime
+          if (unchangeableJson && unchangeableJson[`class:${className}`] && unchangeableJson[`class:${className}`].updateTime) {
+            data.updateTime = unchangeableJson[`class:${className}`].updateTime;
+            logger.info(`使用从unchangeableJson获取的updateTime=${data.updateTime}重试推送...`);
+            
+            // 再次调用API
+            uploadResponse = await api.post('/FHH/EMDHFUNC/biz/upload', data);
+            logger.info(`重试API响应 [${className}]: ${JSON.stringify(uploadResponse, null, 2)}`);
+            
+            // 检查重试结果
+            if (uploadResponse.Result && uploadResponse.Result.StatusCode !== 0) {
+              logger.error(`重试失败 [${className}]: ${uploadResponse.Result.FailureMessage || '未知错误'}`);
+              return { success: false, message: `上传类失败 [${className}]: ${uploadResponse.Result.FailureMessage || '未知错误'}`, name: className };
+            }
+          } else {
+            // 无法从unchangeableJson获取updateTime，尝试从服务器获取最新类信息
+            logger.warning(`无法从unchangeableJson获取updateTime，尝试从服务器获取最新类信息...`);
+            
+            try {
+              // 尝试从服务器获取类信息
+              const classInfo = await api.get(`/FHH/EMDHFUNC/biz/getClass?apiName=${apiName}`);
+              
+              if (classInfo && classInfo.Value && classInfo.Value.updateTime) {
+                const latestUpdateTime = classInfo.Value.updateTime;
+                logger.info(`获取到服务器最新updateTime: ${latestUpdateTime}`);
+                
+                // 使用服务器返回的最新updateTime重试
+                data.updateTime = latestUpdateTime;
+                logger.info(`使用服务器最新updateTime=${latestUpdateTime}重试推送...`);
+                
+                // 再次调用API
+                uploadResponse = await api.post('/FHH/EMDHFUNC/biz/upload', data);
+                logger.info(`重试API响应 [${className}]: ${JSON.stringify(uploadResponse, null, 2)}`);
+                
+                // 检查重试结果
+                if (uploadResponse.Result && uploadResponse.Result.StatusCode !== 0) {
+                  logger.error(`重试失败 [${className}]: ${uploadResponse.Result.FailureMessage || '未知错误'}`);
+                  return { success: false, message: `上传类失败 [${className}]: ${uploadResponse.Result.FailureMessage || '未知错误'}`, name: className };
+                }
+              } else {
+                logger.error(`无法从服务器获取类信息，推送失败`);
+                return { success: false, message: `上传类失败 [${className}]: ${err.message}`, name: className };
+              }
+            } catch (serverError) {
+              logger.error(`从服务器获取类信息失败: ${serverError.message}`);
+              return { success: false, message: `上传类失败 [${className}]: ${err.message}`, name: className };
+            }
+          }
+        } else {
+          logger.error(`上传类失败 [${className}]: ${errorMessage}`);
+          return { success: false, message: `上传类失败 [${className}]: ${errorMessage}`, name: className };
+        }
+      }
+      
+      if (uploadResponse?.Error?.Message) {
+        // 当StatusCode为0但有Error时，通常是系统级提示，不应阻止操作
+        logger.warning(`上传类系统提示 [${className}]: ${uploadResponse?.Error?.Message}`);
+      }
+    } catch (err) {
+      logger.error(`API调用异常 [${className}]: ${err.message}`);
+      logger.debug(`异常堆栈: ${err.stack}`);
+      
+      // 如果是"已存在相同的apiName"错误，尝试使用正确的updateTime重试
+      if (err.message && (err.message.includes('已存在相同的apiName') || err.message.includes('函数API名称已经存在'))) {
+        logger.info(`检测到"已存在相同的apiName"错误，尝试从unchangeableJson获取正确的updateTime重试`);
+        
+        // 从unchangeableJson获取updateTime
+        if (unchangeableJson && unchangeableJson[`class:${className}`] && unchangeableJson[`class:${className}`].updateTime) {
+          data.updateTime = unchangeableJson[`class:${className}`].updateTime;
+          logger.info(`使用从unchangeableJson获取的updateTime=${data.updateTime}重试推送...`);
+          
+          try {
+            // 再次调用API
+            uploadResponse = await api.post('/FHH/EMDHFUNC/biz/upload', data);
+            logger.info(`重试API响应 [${className}]: ${JSON.stringify(uploadResponse, null, 2)}`);
+            
+            // 检查重试结果
+            if (uploadResponse.Result && uploadResponse.Result.StatusCode !== 0) {
+              logger.error(`重试失败 [${className}]: ${uploadResponse.Result.FailureMessage || '未知错误'}`);
+              return { success: false, message: `上传类失败 [${className}]: ${uploadResponse.Result.FailureMessage || '未知错误'}`, name: className };
+            }
+          } catch (retryError) {
+            logger.error(`重试失败 [${className}]: ${retryError.message}`);
+            return { success: false, message: `上传类失败 [${className}]: ${retryError.message}`, name: className };
+          }
+        } else {
+          // 无法从unchangeableJson获取updateTime，尝试从服务器获取最新类信息
+          logger.warning(`无法从unchangeableJson获取updateTime，尝试从服务器获取最新类信息...`);
+          
+          try {
+            // 尝试从服务器获取类信息
+            const classInfo = await api.get(`/FHH/EMDHFUNC/biz/getClass?apiName=${apiName}`);
+            
+            if (classInfo && classInfo.Value && classInfo.Value.updateTime) {
+              const latestUpdateTime = classInfo.Value.updateTime;
+              logger.info(`获取到服务器最新updateTime: ${latestUpdateTime}`);
+              
+              // 使用服务器返回的最新updateTime重试
+              data.updateTime = latestUpdateTime;
+              logger.info(`使用服务器最新updateTime=${latestUpdateTime}重试推送...`);
+              
+              // 再次调用API
+              uploadResponse = await api.post('/FHH/EMDHFUNC/biz/upload', data);
+              logger.info(`重试API响应 [${className}]: ${JSON.stringify(uploadResponse, null, 2)}`);
+              
+              // 检查重试结果
+              if (uploadResponse.Result && uploadResponse.Result.StatusCode !== 0) {
+                logger.error(`重试失败 [${className}]: ${uploadResponse.Result.FailureMessage || '未知错误'}`);
+                return { success: false, message: `上传类失败 [${className}]: ${uploadResponse.Result.FailureMessage || '未知错误'}`, name: className };
+              }
+            } else {
+              logger.error(`无法从服务器获取类信息，推送失败`);
+              return { success: false, message: `上传类失败 [${className}]: ${err.message}`, name: className };
+            }
+          } catch (serverError) {
+            logger.error(`从服务器获取类信息失败: ${serverError.message}`);
+            return { success: false, message: `上传类失败 [${className}]: ${err.message}`, name: className };
+          }
+        }
+      } else {
+        return { success: false, message: `上传类失败 [${className}]: ${err.message || '未知错误'}`, name: className };
+      }
+    }
+    
+    logger.info(`类 ${className} 推送成功!`);
+    
+    return { 
+      success: true, 
+      message: `类 ${className} 推送成功`, 
+      name: className, 
+      id: (uploadResponse && uploadResponse.Value?.id) || apiName 
+    };
+  } catch (error) {
+    logger.error(`从内容推送类失败: ${error.message}`);
+    logger.debug(`从内容推送类详细错误: ${error.stack}`);
+    return { success: false, message: `从内容推送类失败: ${error.message}` };
+  }
+};
+
 module.exports = {
   pushClass,
-  pushNewClass
+  pushNewClass,
+  pushClassFromContent
 };

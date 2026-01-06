@@ -353,6 +353,69 @@ fx-cli push --all
 - 如果推送失败，请检查具体错误信息并处理失败项
 - 推送过程中请勿中断，否则可能导致部分资源未推送
 
+#### `fx-cli github-push`
+
+从GitHub仓库直接推送资源到服务器，支持所有资源类型。
+
+**语法：**
+```bash
+fx-cli github-push [options]
+```
+
+**选项：**
+- `-r, --repo <repo-url>`: GitHub 仓库 URL (必填)
+- `-b, --branch <branch>`: 分支名称 (默认: main)
+- `-c, --commit <commit-id>`: 特定的提交 ID (默认: HEAD)
+- `-d, --dir <dir>`: 仓库中的目标目录 (默认: 根目录)
+- `-t, --types <types>`: 要推送的类型，逗号分隔 (默认: component,plugin,function,class)
+- `--dry-run`: 试运行模式，不实际推送 (默认: false)
+- `--overwrite`: 覆盖已存在的资源 (默认: false)
+- `--no-auto-auth`: 禁用自动认证功能 (默认: false)
+
+**支持的资源类型：**
+- `component` - 自定义组件
+- `plugin` - 自定义插件
+- `function` - APL 函数
+- `class` - APL 类
+
+**示例：**
+```bash
+# 推送主分支的所有资源
+fx-cli github-push -r https://github.com/yourusername/your-repo.git
+
+# 推送 develop 分支的组件和插件
+fx-cli github-push -r https://github.com/yourusername/your-repo.git -b develop -t component,plugin
+
+# 推送指定目录下的所有资源
+fx-cli github-push -r https://github.com/yourusername/your-repo.git -d fx-app/main
+
+# 试运行，不实际推送
+fx-cli github-push -r https://github.com/yourusername/your-repo.git --dry-run
+```
+
+**功能说明：**
+- 从 GitHub 直接部署资源，无需克隆仓库
+- 支持指定分支和提交 ID
+- 支持按资源类型过滤
+- 支持试运行模式，预览推送结果
+- 支持覆盖已存在的资源
+- 自动处理认证信息
+- 显示推送进度和结果统计
+
+**使用场景：**
+1. **从 GitHub 直接部署**：无需克隆仓库，直接从 GitHub 推送资源
+2. **多环境部署**：从不同分支推送资源到不同环境
+3. **CI/CD 集成**：在持续集成流程中使用，自动部署代码
+4. **跨团队协作**：直接推送其他团队的 GitHub 仓库资源
+5. **快速原型部署**：快速部署 GitHub 上的原型代码到测试环境
+
+**注意事项：**
+- 确保已正确配置 GitHub 仓库访问权限
+- 推送前请确保已正确配置纷享销客认证信息
+- 如有大量资源更新，推送过程可能需要较长时间
+- 推送过程中请勿中断，确保所有资源都能完整推送
+- 推送完成后会自动更新本地的 `unchangeableJson.json` 文件
+
 #### 插件推送特性
 
 插件推送功能已经从pushService.js中拆分出来，现在由专门的pushPluginService.js处理，提供以下特性：

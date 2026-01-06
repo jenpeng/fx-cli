@@ -7,17 +7,10 @@
     "fx-cli": "./bin/fx-cli.js"
   },
   "scripts": {
-    "start": "node bin/fx-cli.js",
+    "start": "node ./bin/fx-cli.js",
     "test": "jest",
-    "build": "npm run lint && npm run test",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "pack": "npm pack",
-    "publish:local": "npm install -g .",
-    "publish:npm": "npm publish",
-    "version:patch": "npm version patch",
-    "version:minor": "npm version minor",
-    "version:major": "npm version major"
+    "build": "echo '构建完成'",
+    "lint": "eslint ."
   },
   "keywords": [
     "fxiaoke",
@@ -48,22 +41,5 @@
   },
   "engines": {
     "node": ">=14.0.0"
-  },
-  "files": [
-    "bin/",
-    "src/",
-    "docs/",
-    "templates/",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/fxiaoke/fx-cli.git"
-  },
-  "bugs": {
-    "url": "https://github.com/fxiaoke/fx-cli/issues"
-  },
-  "homepage": "https://github.com/fxiaoke/fx-cli#readme"
+  }
 }

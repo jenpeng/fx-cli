@@ -32,12 +32,12 @@ const logWithColor = (level, message, module = 'pushFunctionService') => {
   console.log(`${color}[${timestamp}] [${module}] [${level}] ${message}${COLORS.RESET}`);
 };
 
-// 简化的日志函数
+// 简化的日志函数 - 默认只输出ERROR和WARN级别，保持输出简洁
 const logger = {
   error: (message, module) => logWithColor(LOG_LEVELS.ERROR, message, module),
   warn: (message, module) => logWithColor(LOG_LEVELS.WARN, message, module),
-  info: (message, module) => logWithColor(LOG_LEVELS.INFO, message, module),
-  debug: (message, module) => logWithColor(LOG_LEVELS.DEBUG, message, module)
+  info: (message, module) => {}, // 禁用INFO级别日志
+  debug: (message, module) => {} // 禁用DEBUG级别日志
 };
 
 // 导入ConfigManager并初始化
@@ -46,7 +46,7 @@ const configManager = getConfigManager();
 // 获取证书数据 - 优先从项目根目录的certificate.json读取，与extension行为保持一致
 const getCertificateData = async () => {
   try {
-    // 1. 优先尝试从项目根目录的certificate.json文件读取，这与extension的行为完全一致
+    // 1. 优先尝试从项目根目录的certificate.json文件读取，这部分的行为完全一致
     const certificateJsonPath = path.join(process.cwd(), 'certificate.json');
     if (await fs.pathExists(certificateJsonPath)) {
       logger.info(`从项目根目录的certificate.json读取证书信息`);
@@ -114,17 +114,9 @@ class PushFunctionService {
    * @param {string} color - 颜色代码
    */
   log(level, message, color = this.colors.reset) {
-    const timestamp = new Date().toISOString();
-    const levelColors = {
-      info: this.colors.blue,
-      warn: this.colors.yellow,
-      error: this.colors.red,
-      debug: this.colors.cyan
-    };
-    
-    if (this.logLevel === 'debug' || ['info', 'warn', 'error'].includes(level)) {
-      console.log(`${color}[${timestamp}] [${level.toUpperCase()}]${this.colors.reset} ${message}`);
-    }
+    // 禁用所有控制台日志输出，保持进度条显示简洁
+    // 只通过返回结果和错误对象传递信息
+    return;
   }
 
   /**
@@ -165,7 +157,7 @@ class PushFunctionService {
       // 如果是函数名称，则进行查询
       const response = await api.getSingleFunction(functionName, 'function', bindingObjectApiName);
       
-      console.log('getFunctionInfo收到的response:', JSON.stringify(response, null, 2));
+
       
       if (response) {
         // 现在api.getSingleFunction直接返回targetItem
@@ -225,14 +217,13 @@ class PushFunctionService {
         version: 1
       };
       
-      console.log(`[DEBUG] createFunction - 准备发送的分析数据:`, JSON.stringify(defaultFunction, null, 2));
-      console.log(`[DEBUG] createFunction - nameSpace: ${defaultFunction.name_space}, returnType: ${defaultFunction.return_type}`);
+
       this.log('info', `createFunction - 调用API进行函数分析，nameSpace: ${defaultFunction.name_space}, returnType: ${defaultFunction.return_type}`, this.colors.blue);
       
       // 1. 调用API进行函数分析
       const analyzeResponse = await api.post('/FHH/EMDHFUNC/runtime/analyze', { function: defaultFunction });
       
-      console.log(`[DEBUG] createFunction - 分析响应:`, JSON.stringify(analyzeResponse, null, 2));
+
       this.log('info', `createFunction - 分析响应成功，状态: ${analyzeResponse?.Result?.StatusCode}`, this.colors.blue);
       
       // 处理API响应错误
@@ -258,7 +249,7 @@ class PushFunctionService {
       this.log('info', `createFunction - 调用API进行编译检查，nameSpace: ${defaultFunction.name_space}, returnType: ${defaultFunction.return_type}`, this.colors.blue);
       const compileResponse = await api.post('/FHH/EMDHFUNC/runtime/compileCheck', { function: defaultFunction });
       
-      console.log(`[DEBUG] createFunction - 编译检查响应:`, JSON.stringify(compileResponse, null, 2));
+
       this.log('info', `createFunction - 编译检查响应成功，状态: ${compileResponse?.Result?.StatusCode}`, this.colors.blue);
       
       // 处理API响应错误
@@ -283,13 +274,13 @@ class PushFunctionService {
         updateTime: 0 // 新函数的updateTime为0
       };
       
-      console.log(`[DEBUG] createFunction - 准备发送的上传数据:`, JSON.stringify(uploadData, null, 2));
+
       this.log('info', `createFunction - 调用API上传函数代码`, this.colors.blue);
       
       // 4. 调用API上传函数代码
       const uploadResponse = await api.post('/FHH/EMDHFUNC/biz/upload', uploadData);
       
-      console.log(`[DEBUG] createFunction - 上传响应:`, JSON.stringify(uploadResponse, null, 2));
+
       this.log('info', `createFunction - 上传响应成功，状态: ${uploadResponse?.Result?.StatusCode}`, this.colors.blue);
       
       // 处理API响应错误
@@ -322,12 +313,243 @@ class PushFunctionService {
    * 更新函数
    * @param {string} functionId - 函数ID
    * @param {Object} functionData - 函数数据
+   * @param {number} updateTime - 更新时间戳
    * @returns {Promise<Object>} 更新结果
    */
-  async updateFunction(functionId, functionData) {
+  async updateFunction(functionId, functionData, updateTime = Date.now()) {
     try {
-      const response = await api.updateFunction(functionId, functionData);
-      return response;
+      // 修复：构建正确的上传数据格式，与uploadFunctionCode保持一致
+      const uploadData = {
+        type: 'function',
+        lang: 0, // groovy
+        commit: 'fx-cli update function',
+        apiName: functionData.apiName || functionData.name,
+        nameSpace: functionData.nameSpace || '',
+        description: functionData.description || `更新函数 ${functionData.name}`,
+        name: functionData.name,
+        bindingObjectApiName: functionData.bindingObjectApiName || 'NONE',
+        returnType: functionData.returnType || '',
+        metaXml: functionData.metaXml || '',
+        content: functionData.content,
+        updateTime: updateTime
+      };
+      
+      this.log('info', `updateFunction - 调用API更新函数: ${functionData.name}`, this.colors.blue);
+      
+      // 使用与extension一致的上传接口
+      let response;
+      try {
+        response = await api.post('/FHH/EMDHFUNC/biz/upload', uploadData);
+      } catch (error) {
+        // 捕获API异常，检查是否为版本冲突错误
+        const errorMessage = error.message || '未知错误';
+        this.log('error', `更新函数失败: ${errorMessage}`, this.colors.red);
+        
+
+        
+        // 参照pushComponentService和pushPluginService的版本冲突处理逻辑
+        if (errorMessage.includes('当前代码在线上有更高版本') && uploadData.updateTime !== 0) {
+          this.log('warn', `检测到版本冲突，尝试从服务器获取最新函数信息...`, this.colors.yellow);
+          
+          try {
+            // 从服务器获取最新函数信息
+            const functionInfo = await api.getSingleFunction(
+              functionData.apiName || functionData.name,
+              'function',
+              functionData.bindingObjectApiName || 'NONE'
+            );
+            
+            
+            // 兼容两种数据结构：直接返回targetItem或{ Value: {...} }
+            let latestUpdateTime = null;
+            if (functionInfo && functionInfo.update_time) {
+              // 直接返回targetItem的情况
+              latestUpdateTime = functionInfo.update_time;
+            } else if (functionInfo && functionInfo.Value && functionInfo.Value.update_time) {
+              // 返回{ Value: {...} }的情况
+              latestUpdateTime = functionInfo.Value.update_time;
+            }
+            
+            if (latestUpdateTime) {
+              // 使用服务器返回的最新updateTime
+              this.log('info', `获取到服务器最新updateTime: ${latestUpdateTime}`, this.colors.blue);
+              
+              // 更新本地的unchangeableJson.json文件中的updateTime
+              try {
+                const projectRoot = configManager.getSync('project.rootDir') || process.cwd();
+                const unchangeableJsonPath = path.join(projectRoot, 'unchangeableJson.json');
+                
+                if (await fs.pathExists(unchangeableJsonPath)) {
+                  // 读取当前的unchangeableJson文件
+                  const unchangeableJsonContent = await fs.readFile(unchangeableJsonPath, 'utf8');
+                  const unchangeableJson = JSON.parse(unchangeableJsonContent);
+                  
+                  // 构建函数的键名
+                  const possibleKeys = [
+                    `function:${functionData.name}`,
+                    `function:${functionData.apiName}`,
+                    functionData.name,
+                    functionData.apiName
+                  ];
+                  
+                  let functionKey = possibleKeys.find(key => unchangeableJson[key]) || `function:${functionData.name}`;
+                  
+                  // 更新函数记录
+                  if (unchangeableJson[functionKey]) {
+                    unchangeableJson[functionKey].updateTime = latestUpdateTime;
+                    this.log('info', `更新本地unchangeableJson.json中的函数 ${functionKey} 的updateTime为 ${latestUpdateTime}`, this.colors.blue);
+                    
+                    // 保存更新后的unchangeableJson文件
+                    await fs.writeFile(unchangeableJsonPath, JSON.stringify(unchangeableJson, null, 2));
+                    this.log('info', `成功更新本地unchangeableJson.json文件`, this.colors.green);
+                  }
+                }
+              } catch (updateError) {
+                this.log('warn', `更新本地unchangeableJson.json文件失败: ${updateError.message}`, this.colors.yellow);
+              }
+              
+              // 使用最新的updateTime重试推送
+              uploadData.updateTime = latestUpdateTime;
+              this.log('info', `使用最新的updateTime=${latestUpdateTime}重试推送...`, this.colors.blue);
+              
+              // 再次调用API推送函数
+              response = await api.post('/FHH/EMDHFUNC/biz/upload', uploadData);
+              
+              
+              // 处理重试响应错误
+              if (response.Result && response.Result.StatusCode !== 0) {
+                this.log('error', `重试失败: ${response.Result.FailureMessage || '未知错误'}`, this.colors.red);
+                throw new Error(`更新函数失败: ${response.Result.FailureMessage || '未知错误'}`);
+              }
+            } else {
+              // 无法从服务器获取函数信息，使用本地updateTime重试
+              this.log('warn', `无法从服务器获取函数信息，使用本地updateTime=${updateTime}重试...`, this.colors.yellow);
+              uploadData.updateTime = updateTime;
+              
+              // 再次调用API推送函数
+              response = await api.post('/FHH/EMDHFUNC/biz/upload', uploadData);
+              
+              
+              // 处理重试响应错误
+              if (response.Result && response.Result.StatusCode !== 0) {
+                this.log('error', `重试失败: ${response.Result.FailureMessage || '未知错误'}`, this.colors.red);
+                throw new Error(`更新函数失败: ${response.Result.FailureMessage || '未知错误'}`);
+              }
+            }
+          } catch (retryError) {
+            this.log('error', `获取最新函数信息失败: ${retryError.message}`, this.colors.red);
+            throw retryError;
+          }
+        } else if (errorMessage.includes('函数API名称已经存在') && uploadData.updateTime === 0) {
+          // 处理overwrite模式下的"函数API名称已经存在"错误
+          this.log('warn', `检测到函数API名称已存在，尝试从服务器获取最新函数信息进行覆盖...`, this.colors.yellow);
+          
+          try {
+            // 从服务器获取最新函数信息
+            const functionInfo = await api.getSingleFunction(
+              functionData.apiName || functionData.name,
+              'function',
+              functionData.bindingObjectApiName || 'NONE'
+            );
+            
+            
+            // 兼容两种数据结构：直接返回targetItem或{ Value: {...} }
+            let latestUpdateTime = null;
+            if (functionInfo && functionInfo.update_time) {
+              // 直接返回targetItem的情况
+              latestUpdateTime = functionInfo.update_time;
+            } else if (functionInfo && functionInfo.Value && functionInfo.Value.update_time) {
+              // 返回{ Value: {...} }的情况
+              latestUpdateTime = functionInfo.Value.update_time;
+            }
+            
+            if (latestUpdateTime) {
+              // 使用服务器返回的最新updateTime进行覆盖
+              this.log('info', `获取到服务器最新updateTime: ${latestUpdateTime}，进行覆盖推送`, this.colors.blue);
+              
+              // 更新本地的unchangeableJson.json文件中的updateTime
+              try {
+                const projectRoot = configManager.getSync('project.rootDir') || process.cwd();
+                const unchangeableJsonPath = path.join(projectRoot, 'unchangeableJson.json');
+                
+                if (await fs.pathExists(unchangeableJsonPath)) {
+                  // 读取当前的unchangeableJson文件
+                  const unchangeableJsonContent = await fs.readFile(unchangeableJsonPath, 'utf8');
+                  const unchangeableJson = JSON.parse(unchangeableJsonContent);
+                  
+                  // 构建函数的键名
+                  const possibleKeys = [
+                    `function:${functionData.name}`,
+                    `function:${functionData.apiName}`,
+                    functionData.name,
+                    functionData.apiName
+                  ];
+                  
+                  let functionKey = possibleKeys.find(key => unchangeableJson[key]) || `function:${functionData.name}`;
+                  
+                  // 更新函数记录
+                  if (unchangeableJson[functionKey]) {
+                    unchangeableJson[functionKey].updateTime = latestUpdateTime;
+                    this.log('info', `更新本地unchangeableJson.json中的函数 ${functionKey} 的updateTime为 ${latestUpdateTime}`, this.colors.blue);
+                    
+                    // 保存更新后的unchangeableJson文件
+                    await fs.writeFile(unchangeableJsonPath, JSON.stringify(unchangeableJson, null, 2));
+                    this.log('info', `成功更新本地unchangeableJson.json文件`, this.colors.green);
+                  }
+                }
+              } catch (updateError) {
+                this.log('warn', `更新本地unchangeableJson.json文件失败: ${updateError.message}`, this.colors.yellow);
+              }
+              
+              // 使用最新的updateTime重试推送
+              uploadData.updateTime = latestUpdateTime;
+              this.log('info', `使用最新的updateTime=${latestUpdateTime}重试推送...`, this.colors.blue);
+              
+              // 再次调用API推送函数
+              response = await api.post('/FHH/EMDHFUNC/biz/upload', uploadData);
+              
+              
+              // 处理重试响应错误
+              if (response.Result && response.Result.StatusCode !== 0) {
+                this.log('error', `覆盖推送失败: ${response.Result.FailureMessage || '未知错误'}`, this.colors.red);
+                throw new Error(`更新函数失败: ${response.Result.FailureMessage || '未知错误'}`);
+              }
+            } else {
+              this.log('error', `无法从服务器获取函数信息，无法进行覆盖推送`, this.colors.red);
+              throw new Error(`更新函数失败: 无法获取函数信息`);
+            }
+          } catch (retryError) {
+            this.log('error', `获取最新函数信息失败: ${retryError.message}`, this.colors.red);
+            throw retryError;
+          }
+        } else {
+          // 其他错误，直接抛出
+          throw error;
+        }
+
+      }
+      
+      
+      // 处理API响应错误
+      if (response.Result && response.Result.StatusCode !== 0) {
+        const errorMessage = response.Result.FailureMessage || '未知错误';
+        this.log('error', `更新函数失败: ${errorMessage}`, this.colors.red);
+        throw new Error(`更新函数失败: ${errorMessage}`);
+      }
+
+      if (response?.Error?.Message) {
+        // 当StatusCode为0但有Error时，通常是系统级提示，不应阻止操作
+        this.log('warn', `更新函数系统提示: ${response?.Error?.Message}`, this.colors.yellow);
+      }
+      
+      this.log('info', `函数更新成功: ${functionData.name}`, this.colors.green);
+      
+      return {
+        success: true,
+        id: functionId,
+        data: response,
+        message: `函数更新成功: ${functionData.name}`
+      };
     } catch (error) {
       this.log('error', `更新函数失败: ${error.message}`, this.colors.red);
       throw error;
@@ -360,7 +582,6 @@ class PushFunctionService {
         // 注意：不包含funcId字段，与pushClassService保持一致
       };
       
-      console.log(`[DEBUG] uploadFunctionCode - 准备发送的上传数据:`, JSON.stringify(data, null, 2));
       this.log('info', `uploadFunctionCode - nameSpace: ${data.nameSpace}, returnType: ${data.returnType}`, this.colors.blue);
       
       const response = await api.post('/FHH/EMDHFUNC/biz/upload', data);
@@ -426,11 +647,9 @@ class PushFunctionService {
         version: 1
       };
       
-      console.log(`[DEBUG] analyzeFunction - 准备发送的分析数据:`, JSON.stringify(analyzeData, null, 2));
       this.log('info', `analyzeFunction - nameSpace: ${analyzeData.name_space}, returnType: ${analyzeData.return_type}`, this.colors.blue);
       
       const response = await api.post('/FHH/EMDHFUNC/runtime/analyze', { function: analyzeData });
-      console.log(`[DEBUG] analyzeFunction - API响应:`, JSON.stringify(response, null, 2));
       this.log('info', `analyzeFunction - API响应成功，状态: ${response?.Result?.StatusCode}`, this.colors.blue);
       return response;
     } catch (error) {
@@ -466,11 +685,9 @@ class PushFunctionService {
         version: 1
       };
       
-      console.log(`[DEBUG] compileFunction - 准备发送的编译数据:`, JSON.stringify(compileData, null, 2));
       this.log('info', `compileFunction - nameSpace: ${compileData.name_space}, returnType: ${compileData.return_type}`, this.colors.blue);
       
       const response = await api.post('/FHH/EMDHFUNC/runtime/compileCheck', { function: compileData });
-      console.log(`[DEBUG] compileFunction - API响应:`, JSON.stringify(response, null, 2));
       this.log('info', `compileFunction - API响应成功，状态: ${response?.Result?.StatusCode}`, this.colors.blue);
       return response;
     } catch (error) {
@@ -528,14 +745,12 @@ class PushFunctionService {
         const bindingObjectMatch = functionContent.match(/@bindingObjectApiName\s+(\w+)/);
         if (bindingObjectMatch) {
           bindingObjectApiName = bindingObjectMatch[1];
-          console.log(`[DEBUG] 从函数文件中解析到bindingObjectApiName: ${bindingObjectApiName}`);
           this.log('info', `从函数文件中解析到bindingObjectApiName: ${bindingObjectApiName}`, this.colors.blue);
         }
         
         const apiNameMatch = functionContent.match(/@apiName\s+(\w+)/);
         if (apiNameMatch) {
           apiName = apiNameMatch[1];
-          console.log(`[DEBUG] 从函数文件中解析到apiName: ${apiName}`);
           this.log('info', `从函数文件中解析到apiName: ${apiName}`, this.colors.blue);
         }
         
@@ -543,18 +758,15 @@ class PushFunctionService {
         const nameSpaceMatch = functionContent.match(/@nameSpace\s+(\w+)/);
         if (nameSpaceMatch) {
           nameSpace = nameSpaceMatch[1];
-          console.log(`[DEBUG] 从函数文件中解析到nameSpace: ${nameSpace}`);
           this.log('info', `从函数文件中解析到nameSpace: ${nameSpace}`, this.colors.blue);
         }
         
         const returnTypeMatch = functionContent.match(/@returnType\s+(\w+)/);
         if (returnTypeMatch) {
           returnType = returnTypeMatch[1];
-          console.log(`[DEBUG] 从函数文件中解析到returnType: ${returnType}`);
           this.log('info', `从函数文件中解析到returnType: ${returnType}`, this.colors.blue);
         }
         
-        console.log(`[DEBUG] 最终使用的bindingObjectApiName: ${bindingObjectApiName}, apiName: ${apiName}, nameSpace: ${nameSpace}, returnType: ${returnType}`);
       } catch (error) {
         this.log('warn', `从函数文件中解析注释失败: ${error.message}`, this.colors.yellow);
       }
@@ -720,14 +932,12 @@ class PushFunctionService {
               
               // 如果强制更新也失败，尝试使用更灵活的查询方式
               if (forceUpdateError.message.includes('未查询到该自定义函数')) {
-                console.log(`[DEBUG] 尝试使用更灵活的查询方式...`);
                 
                 try {
                   // 尝试只使用apiName查询，不指定bindingObjectApiName
                   const flexibleFunctionInfo = await api.getSingleFunction(functionInfo.apiName, 'function', 'NONE');
                   
                   if (flexibleFunctionInfo && flexibleFunctionInfo.Value) {
-                    console.log(`[DEBUG] 灵活查询成功，获取到函数信息`);
                     
                     // 使用找到的函数ID进行更新
                     const functionId = flexibleFunctionInfo.Value.id || flexibleFunctionInfo.Value.funcId;
@@ -765,10 +975,8 @@ class PushFunctionService {
                     };
                   }
                 } catch (flexibleError) {
-          console.log(`[DEBUG] 灵活查询也失败: ${flexibleError.message}`);
           
           // 最后的解决方案：直接使用unchangeableJson.json中的信息，绕过查询
-          console.log(`[DEBUG] 尝试直接使用unchangeableJson.json信息进行更新...`);
           
           try {
             // 从unchangeableJson.json中获取函数信息
@@ -780,7 +988,6 @@ class PushFunctionService {
             const storedFunctionInfo = unchangeableData[functionKey];
             
             if (storedFunctionInfo) {
-              console.log(`[DEBUG] 从unchangeableJson.json中找到函数记录:`, storedFunctionInfo);
               
               // 使用存储的信息构造函数数据
               const directUpdateFunctionInfo = {
@@ -800,7 +1007,6 @@ class PushFunctionService {
               };
               
               // 直接使用上传API，不传functionId，让服务器根据apiName匹配
-              console.log(`[DEBUG] 尝试直接上传更新...`);
               const directUploadResult = await this.uploadFunctionCode(null, directUploadData, directUpdateFunctionInfo);
               
               // 分析和编译
@@ -818,10 +1024,8 @@ class PushFunctionService {
                 message: `函数已存在但通过直接更新成功: ${functionInfo.name}`
               };
             } else {
-              console.log(`[DEBUG] unchangeableJson.json中未找到函数记录: ${functionKey}`);
             }
           } catch (directUpdateError) {
-            console.log(`[DEBUG] 直接更新也失败: ${directUpdateError.message}`);
           }
         }
               }
@@ -886,7 +1090,6 @@ class PushFunctionService {
         // 确保functionInfo包含正确的nameSpace和returnType
         functionInfo.nameSpace = nameSpace;
         functionInfo.returnType = returnType;
-        console.log(`[DEBUG] 准备分析函数，functionInfo.nameSpace: ${functionInfo.nameSpace}, functionInfo.returnType: ${functionInfo.returnType}`);
         await this.analyzeFunction(functionInfo);
         this.log('info', `函数分析完成: ${fileName}`, this.colors.blue);
       } catch (analyzeError) {
@@ -898,7 +1101,6 @@ class PushFunctionService {
         // 确保functionInfo包含正确的nameSpace和returnType
         functionInfo.nameSpace = nameSpace;
         functionInfo.returnType = returnType;
-        console.log(`[DEBUG] 准备编译函数，functionInfo.nameSpace: ${functionInfo.nameSpace}, functionInfo.returnType: ${functionInfo.returnType}`);
         await this.compileFunction(functionInfo);
         this.log('info', `函数编译完成: ${fileName}`, this.colors.blue);
       } catch (compileError) {
@@ -1099,6 +1301,121 @@ class PushFunctionService {
       };
     }
   }
+
+  /**
+   * 从文件内容推送函数
+   * @param {string} filePath - 文件路径（用于提取文件名）
+   * @param {string} functionContent - 函数文件内容
+   * @param {number} updateTime - 更新时间戳
+   * @param {string} apiName - 可选的API名称（如果提供，将优先使用）
+   * @param {string} nameSpace - 可选的命名空间
+   * @param {string} returnType - 可选的返回类型
+   * @returns {Promise<Object>} 推送结果
+   */
+  async pushFunctionFromContent(filePath, functionContent, updateTime = 0, apiName = '', nameSpace = '', returnType = '') {
+    try {
+      this.log('info', `开始从内容推送函数...`, this.colors.green);
+      
+      // 获取证书数据
+      const certificateData = await getCertificateData();
+      
+      // 提取文件名
+      const fileName = path.basename(filePath, '.groovy');
+      
+      // 尝试从函数文件注释中解析bindingObjectApiName和apiName
+      let bindingObjectApiName = certificateData.bindingObjectApiName || 'NONE';
+      let parsedApiName = '';
+      let parsedNameSpace = '';
+      let parsedReturnType = '';
+      
+      try {
+        const bindingObjectMatch = functionContent.match(/@bindingObjectApiName\s+(\w+)/);
+        if (bindingObjectMatch) {
+          bindingObjectApiName = bindingObjectMatch[1];
+          this.log('info', `从函数文件中解析到bindingObjectApiName: ${bindingObjectApiName}`, this.colors.blue);
+        }
+        
+        const apiNameMatch = functionContent.match(/@apiName\s+(\w+)/);
+        if (apiNameMatch) {
+          parsedApiName = apiNameMatch[1];
+          this.log('info', `从函数文件中解析到apiName: ${parsedApiName}`, this.colors.blue);
+        }
+        
+        // 解析nameSpace和returnType
+        const nameSpaceMatch = functionContent.match(/@nameSpace\s+(\w+)/);
+        if (nameSpaceMatch) {
+          parsedNameSpace = nameSpaceMatch[1];
+          this.log('info', `从函数文件中解析到nameSpace: ${parsedNameSpace}`, this.colors.blue);
+        }
+        
+        const returnTypeMatch = functionContent.match(/@returnType\s+(\w+)/);
+        if (returnTypeMatch) {
+          parsedReturnType = returnTypeMatch[1];
+          this.log('info', `从函数文件中解析到returnType: ${parsedReturnType}`, this.colors.blue);
+        }
+      } catch (error) {
+        this.log('warn', `从函数文件中解析注释失败: ${error.message}`, this.colors.yellow);
+      }
+      
+      // 优先使用传入的参数，其次使用解析的值
+      const finalApiName = apiName || parsedApiName || fileName;
+      const finalNameSpace = nameSpace || parsedNameSpace;
+      const finalReturnType = returnType || parsedReturnType;
+      
+      this.log('info', `使用apiName: ${finalApiName} (来源: ${apiName ? '参数' : (parsedApiName ? '文件解析' : '文件名')})`, this.colors.blue);
+      if (finalNameSpace) {
+        this.log('info', `使用nameSpace: ${finalNameSpace} (来源: ${nameSpace ? '参数' : '文件解析'})`, this.colors.blue);
+      }
+      if (finalReturnType) {
+        this.log('info', `使用returnType: ${finalReturnType} (来源: ${returnType ? '参数' : '文件解析'})`, this.colors.blue);
+      }
+      
+      // 准备函数数据
+      const functionData = {
+        name: fileName,
+        apiName: finalApiName,
+        content: functionContent,
+        bindingObjectApiName,
+        nameSpace: finalNameSpace,
+        returnType: finalReturnType
+      };
+      
+      // 检查函数是否已存在 - 优先使用apiName查询
+      let existingFunction = null;
+      if (finalApiName) {
+        // 如果有apiName，优先使用apiName查询
+        this.log('info', `使用apiName检查函数是否已存在: ${finalApiName}`, this.colors.blue);
+        existingFunction = await this.getFunctionInfo(finalApiName, bindingObjectApiName);
+      }
+      
+      // 如果使用apiName查询失败，尝试使用文件名查询
+      if (!existingFunction) {
+        this.log('info', `使用文件名检查函数是否已存在: ${fileName}`, this.colors.blue);
+        existingFunction = await this.getFunctionInfo(fileName, bindingObjectApiName);
+      }
+      
+      let result;
+      if (existingFunction) {
+        // 更新函数
+        this.log('info', `函数 ${fileName} 已存在，更新函数`, this.colors.blue);
+        result = await this.updateFunction(existingFunction.id, functionData, updateTime);
+      } else {
+        // 创建函数
+        this.log('info', `函数 ${fileName} 不存在，创建新函数`, this.colors.blue);
+        result = await this.createFunction(functionData, updateTime);
+      }
+      
+      this.log('info', `函数 ${fileName} 推送成功`, this.colors.green);
+      return {
+        success: true,
+        name: fileName,
+        result: result
+      };
+    } catch (error) {
+      this.log('error', `从内容推送函数失败: ${error.message}`, this.colors.red);
+      throw error;
+    }
+  }
 }
 
 // 创建单例实例
@@ -1108,5 +1425,6 @@ module.exports = {
   PushFunctionService,
   pushFunctionService,
   pushFunction: pushFunctionService.pushFunction.bind(pushFunctionService),
-  pushAllFunctions: pushFunctionService.pushAllFunctions.bind(pushFunctionService)
+  pushAllFunctions: pushFunctionService.pushAllFunctions.bind(pushFunctionService),
+  pushFunctionFromContent: pushFunctionService.pushFunctionFromContent.bind(pushFunctionService)
 };
